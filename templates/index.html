@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GT7 TuneLab</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="bg"></div>
+  <header class="top">
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <p class="eyebrow">Gran Turismo 7 · Atelier + GT Auto</p>
+        <h1>TuneLab</h1>
+      </div>
+    </div>
+    <div class="stats" id="stats">—</div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel form-panel">
+      <h2>Briefing</h2>
+
+      <label>Voiture</label>
+      <div class="combo" data-kind="car">
+        <input id="carQuery" type="search" placeholder="Nom, marque, Gr.3, GT-R…" autocomplete="off" />
+        <div class="combo-list" id="carList" hidden></div>
+      </div>
+      <div class="picked" id="carPicked">Aucune voiture</div>
+
+      <label>Circuit</label>
+      <div class="combo" data-kind="track">
+        <input id="trackQuery" type="search" placeholder="Spa, Tokyo, Sardegna…" autocomplete="off" />
+        <div class="combo-list" id="trackList" hidden></div>
+      </div>
+      <div class="picked" id="trackPicked">Aucun circuit</div>
+
+      <label>Rang collectionneur <span class="val" id="clVal">20</span></label>
+      <input id="collector" type="range" min="1" max="50" value="20" />
+
+      <label>Style de conduite</label>
+      <div class="seg" id="styleSeg">
+        <button type="button" data-v="stable">Stable</button>
+        <button type="button" data-v="polyvalent" class="on">Polyvalent</button>
+        <button type="button" data-v="chrono">Chrono</button>
+        <button type="button" data-v="drift">Drift</button>
+      </div>
+
+      <label>Météo</label>
+      <select id="weather"></select>
+
+      <details class="regs" open>
+        <summary>Restrictions / règlement</summary>
+        <label>Pneus imposés</label>
+        <select id="tires"><option value="">Libre (l'outil choisit)</option></select>
+
+        <label>Limite PP</label>
+        <input id="pp" type="number" min="100" max="1500" step="1" placeholder="ex. 650 — vide = pas de limite" />
+
+        <label>Catégories autorisées</label>
+        <div class="chips" id="catChips"></div>
+
+        <label>Type de voiture</label>
+        <div class="chips" id="typeChips"></div>
+
+        <label>Traction autorisée</label>
+        <div class="chips" id="dtChips"></div>
+      </details>
+
+      <details class="regs">
+        <summary>Options atelier</summary>
+        <label class="chk"><input id="gtAuto" type="checkbox" checked /> GT Auto débloqué</label>
+        <label class="chk"><input id="allowWide" type="checkbox" checked /> Autoriser kit large + jantes</label>
+        <label class="chk"><input id="allowSwap" type="checkbox" checked /> Autoriser swap moteur (rang 50)</label>
+        <label class="chk"><input id="ultimate" type="checkbox" /> J'ai des pièces Ultimate (roulette 3★/4★)</label>
+        <label>Forcer la traction (si la détection se trompe)</label>
+        <select id="dtOverride"><option value="">Auto</option></select>
+      </details>
+
+      <div class="actions">
+        <button class="btn primary" id="go">Générer le plan</button>
+        <button class="btn ghost" id="suggest">Proposer une voiture</button>
+      </div>
+      <p class="hint">Les prix sont des fourchettes GT7 (varient selon l'auto). Les Gr. ont souvent des pièces déjà montées ou grisées.</p>
+    </aside>
+
+    <section class="panel results" id="results">
+      <div class="empty" id="empty">
+        <p class="eyebrow">En attente de briefing</p>
+        <h2>Choisis une voiture, un circuit, ton rang — l'atelier s'occupe du reste.</h2>
+        <p>Liste d'achats (Sports → Ultimate), GT Auto (kit large, aéro, swap), et feuille de réglages calée sur le tracé.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Outil communautaire, non affilié à Polyphony Digital / SIE. Bases voitures / circuits / swaps : gt7info.
+    PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

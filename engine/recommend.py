@@ -1,0 +1,813 @@
+"""Moteur de recommandation : pièces, GT Auto, feuille de réglages."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+
+from .catalog import (
+    PARTS,
+    PARTS_BY_ID,
+    TIERS,
+    TIRE_COMPOUNDS,
+    part_unlocked,
+)
+
+
+def _tire_by_code(code: str):
+    for t in TIRE_COMPOUNDS:
+        if t["id"] == code:
+            return t
+    return TIRE_COMPOUNDS[5]  # SS fallback
+
+
+def pick_tires(profile, weather, tire_restriction, collector_level, has_ultimate):
+    """Retourne le compound à monter + justification."""
+    if tire_restriction:
+        t = _tire_by_code(tire_restriction)
+        return t, f"Imposé par le règlement : {t['name_fr']}."
+
+    surface = profile["surface"]
+    if surface == "dirt":
+        return _tire_by_code("D"), "Circuit terre : pneus Dirt obligatoires pour performer (et souvent pour s'inscrire)."
+    if surface == "snow":
+        if collector_level >= 50:
+            return _tire_by_code("SNOW"), "Lake Louise / neige : pneus neige (Extreme, rang 50)."
+        return _tire_by_code("D"), "Neige mais rang < 50 : Dirt en pis-aller, tu n'as pas encore les pneus neige."
+
+    if weather == "wet":
+        if collector_level >= 50:
+            return _tire_by_code("W"), "Pluie : Heavy Wet (Extreme)."
+        return _tire_by_code("SS"), "Pluie mais Extreme verrouillé : Sports Soft, tu vas glisser."
+    if weather == "damp":
+        if collector_level >= 50:
+            return _tire_by_code("IM"), "Piste humide : intermédiaires."
+        return _tire_by_code("SS"), "Humide sans Extreme : Sports Soft, prudence."
+    if weather == "variable":
+        if collector_level >= 50:
+            return _tire_by_code("IM"), "Météo changeante : partir en intermédiaires, prévoir un train de slicks/pluie."
+        return _tire_by_code("SM"), "Météo changeante sans Extreme : Sports Medium, plus tolérant."
+
+    # dry tarmac
+    if profile.get("endurance") and collector_level >= 6:
+        return _tire_by_code("RM"), "Stint long / endurance : Racing Medium, le meilleur compromis usure/chrono."
+    if collector_level >= 6:
+        if profile["layout"] == "high_speed" and profile.get("oval"):
+            return _tire_by_code("RH"), "Oval : Racing Hard, moins de surchauffe et usure plus linéaire."
+        return _tire_by_code("RS"), "Sec, rang 6+ : Racing Soft pour le chrono. Passe en RM si usure ou heat."
+    return _tire_by_code("SS"), "Rang < 6 : Sports Soft, le meilleur pneu boutique disponible."
+
+
+def _add(items, pid, why, priority, optional=False, extra=None):
+    part = deepcopy(PARTS_BY_ID[pid])
+    part["why"] = why
+    part["priority"] = priority  # must | core | power | pp | optional | skip
+    part["optional"] = optional
+    if extra:
+        part.update(extra)
+    items.append(part)
+
+
+def _best_available(collector_level, has_ultimate, chain):
+    """chain = ids from best to worst."""
+    for pid in chain:
+        p = PARTS_BY_ID[pid]
+        if part_unlocked(p, collector_level, has_ultimate):
+            return pid
+    return None
+
+
+def recommend(car, track, opts):
+    cl = int(opts.get("collector_level") or 1)
+    weather = opts.get("weather") or "dry"
+    tire_r = opts.get("tires") or None
+    pp_limit = opts.get("pp_limit")
+    pp_limit = float(pp_limit) if pp_limit not in (None, "", 0, "0") else None
+    has_ultimate = bool(opts.get("has_ultimate"))
+    has_gt_auto = bool(opts.get("has_gt_auto", True))
+    allow_swap = bool(opts.get("allow_swap", True))
+    allow_wide = bool(opts.get("allow_wide", True))
+    style = opts.get("style") or "polyvalent"  # stable | polyvalent | chrono | drift
+    drivetrain = opts.get("drivetrain_override") or car["drivetrain"]
+    categories = opts.get("categories") or []
+    drivetrain_filters = opts.get("drivetrains") or []
+    car_types = opts.get("car_types") or []
+
+    profile = track["profile"]
+    warnings = []
+    notes = []
+
+    if categories and car["category"] not in categories:
+        # N-classes only apply loosely
+        if not any(c.startswith("N") for c in categories):
+            warnings.append(
+                f"La {car['full_name']} est en {car['category']}, hors règlement ({', '.join(categories)})."
+            )
+    if drivetrain_filters and drivetrain not in drivetrain_filters:
+        warnings.append(
+            f"Traction détectée : {drivetrain}. Le règlement demande {', '.join(drivetrain_filters)}."
+        )
+    if car_types and car["car_type"] not in car_types:
+        warnings.append(
+            f"Type {car['car_type']} hors filtre ({', '.join(car_types)})."
+        )
+    if cl < 4:
+        notes.append("Rang < 4 : Club Sports fermé (LSD, bore, bridle, ballast, Dirt).")
+    if cl < 5:
+        notes.append("Rang < 5 : pas de LSD full custom ni boîte full custom.")
+    if cl < 6:
+        notes.append("Rang < 6 : pas de suspension full custom, ni Racing tires, ni séquentielle.")
+    if cl < 50:
+        notes.append("Rang < 50 : Extreme + swap moteur verrouillés.")
+
+    tire, tire_why = pick_tires(profile, weather, tire_r, cl, has_ultimate)
+    if tire["id"] in ("IM", "W", "SNOW") and cl < 50:
+        warnings.append("Les pneus météo Extreme demandent le rang 50.")
+
+    shopping = []
+    skipped = []
+    gt_auto = []
+
+    # ── Pneus ──────────────────────────────────────────────────────────
+    _add(shopping, tire["part"], tire_why, "must")
+
+    # ── Chassis ────────────────────────────────────────────────────────
+    race_car = car["is_race"]
+    if race_car:
+        notes.append(
+            "Voiture de course : beaucoup de pièces atelier sont déjà là ou grisées. "
+            "Achète seulement ce qui apparaît dans le menu de cette auto."
+        )
+
+    susp = _best_available(cl, has_ultimate, ["susp_full", "susp_sport_adj", "susp_sport", "susp_street"])
+    if susp:
+        why = {
+            "susp_full": "Tous les curseurs. C'est LA pièce qui transforme le comportement.",
+            "susp_sport_adj": "Hauteur réglable en attendant le rang 6.",
+            "susp_sport": "Plus ferme que la street, meilleur support en appui.",
+            "susp_street": "Premier palier : caisse plus basse, moins de roulis.",
+        }[susp]
+        _add(shopping, susp, why, "core")
+
+    if cl >= 5:
+        _add(shopping, "rigidity", "Caisse plus rigide = réponses plus propres, surtout combiné à l'allègement.", "core")
+
+    wr_chain = ["wr5", "wr4", "wr3", "wr2", "wr1"]
+    wr_best = _best_available(cl, has_ultimate, wr_chain)
+    if wr_best and not race_car:
+        # need to buy the chain
+        order = ["wr1", "wr2", "wr3", "wr4", "wr5"]
+        stop = order.index(wr_best)
+        for pid in order[: stop + 1]:
+            if part_unlocked(PARTS_BY_ID[pid], cl, has_ultimate):
+                _add(
+                    shopping,
+                    pid,
+                    "L'allègement est le meilleur Cr./PP du jeu. Stages enchaînés, irréversibles sans carrosserie neuve.",
+                    "core",
+                )
+    elif wr_best and race_car:
+        skipped.append("Allègement : souvent déjà au minimum sur une Gr. / racing. Vérifier en jeu.")
+
+    # brakes
+    pads = _best_available(cl, has_ultimate, ["pads_racing", "pads_sport"])
+    discs = _best_available(cl, has_ultimate, ["brakes_slot", "brakes_sport"])
+    if tire["grip"] >= 7:
+        if pads:
+            _add(shopping, pads, "Pneus racing : plaquettes racing, sinon tu n'arrêtes plus la voiture.", "core")
+        if discs:
+            _add(shopping, discs, "Disques racing (rainurés). Les percés sont identiques en perf.", "core")
+    else:
+        if pads:
+            _add(shopping, pads, "Minimum freinage. Monte d'un cran si tu passes en Sports/Racing.", "core")
+        if discs and tire["grip"] >= 4:
+            _add(shopping, discs, "Disques sport/racing pour coller au niveau des pneus.", "core")
+    if cl >= 6:
+        _add(shopping, "brake_bal", "Répartiteur : 1–3 clics vers l'arrière en FR/MR, un peu plus avant en FF.", "core")
+
+    # LSD / trans driveline
+    lsd = _best_available(cl, has_ultimate, ["lsd_full", "lsd_2way", "lsd_1way"])
+    if lsd:
+        why = {
+            "lsd_full": "Init / accel / decel : c'est 80% du feeling propulsion.",
+            "lsd_2way": "En attendant le full custom : plus stable à l'attaque que le 1-way.",
+            "lsd_1way": "Aide à la sortie de courbe. Passe 2-way dès que possible.",
+        }[lsd]
+        _add(shopping, lsd, why, "core")
+
+    if drivetrain == "4WD" and cl >= 6:
+        _add(shopping, "center_diff", "Répartition de couple 4WD. Sans ça tu ne règles pas le caractère de l'auto.", "core")
+        _add(shopping, "active_lsd", "LSD actif : plus propre en 4WD qu'un 2-way figé, surtout sur l'avant.", "optional", optional=True)
+
+    clutch = _best_available(cl, has_ultimate, ["clutch_racing", "clutch_semi", "clutch_sport"])
+    if clutch:
+        _add(shopping, clutch, "Volant allégé = réponse et frein moteur. Gain de ligne droite faible, gain de chassis réel.", "core")
+
+    if has_ultimate:
+        _add(shopping, "carbon_shaft", "Arbre carbone (Ultimate) : réponse à l'accélérateur plus vive.", "optional", optional=True)
+
+    # gearbox
+    if cl >= 6:
+        _add(
+            shopping,
+            "trans_seq",
+            "Séquentielle full custom : rapports + pont. Vise la Vmax cible du circuit (voir feuille).",
+            "core",
+        )
+    elif cl >= 5:
+        _add(shopping, "trans_manual", "Boîte manuelle full custom : indispensable dès que tu pousses le moteur.", "core")
+    else:
+        if profile["layout"] == "high_speed":
+            if cl >= 4:
+                _add(shopping, "trans_high", "Circuit rapide sans full custom : close-ratio longue.", "core")
+        else:
+            if cl >= 4:
+                _add(shopping, "trans_low", "Circuit technique sans full custom : close-ratio courte.", "core")
+
+    # ── Moteur ─────────────────────────────────────────────────────────
+    # Sous une limite PP, on n'empile pas turbo + swap + Ultimate pour tout bride ensuite.
+    if pp_limit is None or pp_limit >= 800:
+        power_level = "max"
+    elif pp_limit >= 700:
+        power_level = "high"
+    elif pp_limit >= 600:
+        power_level = "mid"
+    else:
+        power_level = "low"
+    if race_car:
+        power_level = "low" if pp_limit else "mid"
+    modest_power = power_level in ("low", "mid")
+    skip_boost = race_car or power_level in ("low", "mid")
+    skip_ultimate_power = power_level != "max"
+
+    # ECU always useful (power + later detune)
+    ecu = _best_available(cl, has_ultimate, ["ecu_full", "ecu_sport"])
+    if ecu:
+        why = (
+            "Réglage du % de puissance : l'arme n°1 pour coller à une limite PP sans casser la courbe."
+            if ecu == "ecu_full"
+            else "Premier palier de carto. Passe full custom au rang 5 pour le % de puissance."
+        )
+        _add(shopping, ecu, why, "power")
+
+    intake = _best_available(cl, has_ultimate, ["air_racing", "air_sport"])
+    if intake and not race_car:
+        _add(shopping, intake, "Admission : cheap, toujours prise.", "power")
+
+    exhaust = _best_available(cl, has_ultimate, ["muffler_racing", "muffler_semi", "muffler_sport"])
+    if exhaust and not race_car:
+        _add(shopping, exhaust, "Ligne plus libre, plus de haut-régime.", "power")
+    if cl >= 6 and not race_car:
+        _add(shopping, "manifold", "Collecteur racing : complète la ligne.", "power")
+
+    if not race_car and power_level != "low":
+        # permanent NA path — dosé selon la limite PP
+        if cl >= 4:
+            _add(shopping, "bore", "Bore up : meilleur rapport prix/chevaux sur un NA. Irréversible.", "power")
+            _add(shopping, "cam", "Cames haute levée : +300 tr/min, allonge le haut.", "power")
+            if skip_boost:
+                _add(shopping, "pistons_hc", "Pistons HC : NA only. Ne pas poser si tu prévois un turbo.", "power", optional=True)
+        if cl >= 5 and power_level in ("high", "max"):
+            _add(shopping, "crank", "Vilebrequin racing : pic plus haut, irréversible.", "power")
+        if cl >= 6 and power_level == "max":
+            _add(shopping, "stroke", "Stroke up : second palier de cylindrée. Irréversible.", "power")
+            _add(shopping, "balance", "Équilibrage : ×1.05 sur le rupteur, gros palier.", "power")
+            _add(shopping, "ports", "Polissage des conduits : haut-régime.", "power")
+        if has_ultimate and not skip_ultimate_power:
+            for pid, why in [
+                ("bore_s", "Ultimate : bore S remplace le bore standard."),
+                ("stroke_s", "Ultimate : stroke S."),
+                ("ti_rods", "Ultimate : bielles/pistons titane, moteur qui tourne plus libre."),
+                ("cam_s", "Ultimate : cames S."),
+            ]:
+                _add(shopping, pid, why, "power", optional=True)
+        elif has_ultimate and skip_ultimate_power:
+            notes.append("Pièces Ultimate moteur ignorées : la limite PP ne justifie pas le surplus de chevaux.")
+
+        # boost
+        if cl >= 6 and power_level == "low":
+            notes.append("Limite PP basse : on garde ECU / admission / ligne pour le couple, sans cylindrée ni turbo.")
+        if not skip_boost and cl >= 5:
+            if profile["layout"] == "technical" or profile["surface"] in ("dirt", "snow"):
+                turbo = _best_available(cl, has_ultimate, ["turbo_low", "turbo_mid"])
+                why = "Turbo bas/mi-régime : couple tôt sur piste technique ou terre."
+            elif profile["layout"] == "high_speed":
+                turbo = _best_available(cl, has_ultimate, ["turbo_uhigh", "turbo_high", "turbo_mid"])
+                why = "Turbo haut-régime : pic pour les grandes courbes / lignes droites."
+            else:
+                turbo = _best_available(cl, has_ultimate, ["turbo_mid", "turbo_high"])
+                why = "Turbo mi-régime : le plus propre à conduire."
+            if turbo:
+                _add(shopping, turbo, why, "power")
+            ic = _best_available(cl, has_ultimate, ["ic_racing", "ic_sport"])
+            if ic:
+                _add(shopping, ic, "Intercooler dès qu'il y a de la suralimentation.", "power")
+            if cl >= 6:
+                _add(shopping, "als", "Anti-lag : le turbo reste en pression à la décélération.", "power")
+            notes.append(
+                "Ne cumule pas pistons haute compression et kit turbo/compressseur : le jeu retire les HC."
+            )
+
+    if style == "chrono" and cl >= 50 and profile["layout"] == "high_speed" and not pp_limit:
+        _add(shopping, "nitro", "Nitro : burst sur oval / Route X. Évite en course PP.", "optional", optional=True)
+
+    # PP tools
+    if pp_limit is not None and cl >= 4:
+        _add(
+            shopping,
+            "restrictor",
+            f"Limite {pp_limit:.0f} PP : bridle en dernier recours (garde le couple bas).",
+            "pp",
+        )
+        _add(
+            shopping,
+            "ballast",
+            "Lest : 1) descendre le PP  2) bouger l'équilibre (FF : reculer / MR léger à l'arrière : avancer).",
+            "pp",
+        )
+        if ecu == "ecu_full":
+            notes.append(
+                f"Procédure PP {pp_limit:.0f} : monte le chassis d'abord, la puissance ensuite, "
+                "puis ECU (output %) jusqu'à passer sous la barre. Bridle si l'ECU mange trop le haut. "
+                "Lest seulement s'il reste 1–2 PP ou pour l'équilibre."
+            )
+    elif cl >= 4:
+        _add(shopping, "restrictor", "À avoir dans l'inventaire pour les Daily / salon PP.", "optional", optional=True)
+        _add(shopping, "ballast", "Utile pour l'équilibre même sans limite PP.", "optional", optional=True)
+
+    # ── GT Auto ────────────────────────────────────────────────────────
+    if has_gt_auto:
+        want_wide = allow_wide and not race_car and profile["surface"] == "tarmac"
+        if want_wide:
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID["widebody"]),
+                "why": "Voies plus larges + pneus plus larges après changement de jantes. Gros gain de grip, PP en hausse.",
+                "priority": "core",
+                "optional": False,
+            })
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID["wheels"]),
+                "why": "Après kit large : nouvelles jantes pour élargir les pneus. +1 taille si le règlement PP le permet.",
+                "priority": "core",
+                "optional": False,
+            })
+        elif allow_wide and race_car:
+            skipped.append("Kit large : les Gr. ont déjà un body racing. Inutile / souvent indisponible.")
+
+        if profile["surface"] == "tarmac":
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID["aero_front"]),
+                "why": "Débloque l'appui avant 0–100. Prends le type qui existe (A ou B, peu importe le look).",
+                "priority": "core",
+                "optional": False,
+            })
+            rear_part = "aero_diffuser" if profile["layout"] != "high_speed" else "aero_rear"
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID[rear_part]),
+                "why": (
+                    "Diffuseur : appui AV+AR 50–100 et moins de traînée — souvent le meilleur deal."
+                    if rear_part == "aero_diffuser"
+                    else "Aéro arrière classique 0–100 si pas de diffuseur sur cette caisse."
+                ),
+                "priority": "core",
+                "optional": False,
+            })
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID["aero_side"]),
+                "why": "Souvent cosmétique, parfois requis pour 'compléter' le pack. Installe si dispo.",
+                "priority": "optional",
+                "optional": True,
+            })
+            wing_id = "wing_custom" if profile["layout"] != "high_speed" else "wing_ab"
+            if profile["layout"] == "high_speed" and (profile.get("oval") or "route x" in track["name"].lower()):
+                wing_id = "wingless"
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID[wing_id]),
+                "why": {
+                    "wing_custom": "Aileron custom : 50–200 à l'arrière, plus de levier pour équilibrer.",
+                    "wing_ab": "Type A/B : 50–150. Suffisant, moins de drag qu'un custom à fond.",
+                    "wingless": "Grandes lignes droites / oval : drag minimum. Tu compenseras au châssis.",
+                }[wing_id],
+                "priority": "core" if wing_id != "wingless" else "optional",
+                "optional": wing_id == "wingless",
+            })
+
+        if profile["surface"] in ("dirt", "snow") or style == "drift":
+            if cl >= 50:
+                gt_auto.append({
+                    **deepcopy(PARTS_BY_ID["rollcage"]),
+                    "why": "Look rallye / cage. Perf négligeable.",
+                    "priority": "optional",
+                    "optional": True,
+                })
+
+        # Engine swap
+        if allow_swap and car.get("swaps") and cl >= 50 and power_level in ("high", "max"):
+            ranked = _rank_swaps(car["swaps"], pp_limit, profile)
+            top = ranked[0]
+            gt_auto.append({
+                **deepcopy(PARTS_BY_ID["engine_swap"]),
+                "why": (
+                    f"Meilleur swap pour ce contexte : {top['engine']} "
+                    f"(issu de {top['donor']}). "
+                    + ("Limite PP : vérifie le PP après swap avant d'empiler les kits." if pp_limit else "Sans limite PP : prends le plus fort que tu arrives à piloter.")
+                ),
+                "priority": "power",
+                "optional": False,
+                "swap_pick": top,
+                "swap_all": ranked,
+            })
+            notes.append(
+                "Après un swap : le moteur neuf 'reset' ne ramène PAS l'origine, il reset les mods du nouveau moteur. "
+                "Re-taille la boîte, le lest et l'ECU."
+            )
+        elif allow_swap and car.get("swaps") and cl >= 50:
+            ranked = _rank_swaps(car["swaps"], pp_limit, profile)
+            notes.append(
+                f"Swap(s) connus ({len(ranked)}) : {', '.join(s['engine'] for s in ranked[:4])}. "
+                "Non conseillé ici — trop de PP à recaler vs la limite."
+            )
+        elif allow_swap and car.get("swaps") and cl < 50:
+            warnings.append(f"{len(car['swaps'])} swap(s) existent pour cette auto, mais il faut le rang 50.")
+        elif allow_swap and not car.get("swaps"):
+            notes.append("Aucun swap connu pour cette voiture dans la base (liste gt7info, MAJ v1.61+ partielle).")
+    else:
+        notes.append("GT Auto décoché : kit large, aéro et swap ignorés.")
+
+    # extras extreme
+    if style == "drift" and cl >= 50:
+        _add(shopping, "steering_angle", "Plus d'angle : drift / épingle terre.", "optional", optional=True)
+        _add(shopping, "handbrake", "Frein à main hydro : rallye et drift.", "optional", optional=True)
+    if profile["surface"] in ("dirt", "snow") and cl >= 50:
+        _add(shopping, "handbrake", "Frein à main hydro : épingles terre / neige.", "optional", optional=True)
+
+    # carbon ceramic : skip (same as racing)
+    skipped.append("Freins carbone-céramique : même perf que les racing. Économise les Cr.")
+    skipped.append("Moteur neuf / carrosserie neuve : uniquement pour ANNULER un permanent, pas pour aller plus vite.")
+
+    setup = build_setup(
+        car=car,
+        track=track,
+        profile=profile,
+        drivetrain=drivetrain,
+        tire=tire,
+        style=style,
+        cl=cl,
+        pp_limit=pp_limit,
+        weather=weather,
+        has_gt_auto=has_gt_auto,
+        allow_wide=allow_wide and not race_car,
+    )
+
+    # costs
+    def _cost(items):
+        mn = sum(i.get("price_min") or 0 for i in items if not i.get("optional") and i.get("shop") != "roulette")
+        mx = sum(i.get("price_max") or 0 for i in items if not i.get("optional") and i.get("shop") != "roulette")
+        return mn, mx
+
+    must_core = [i for i in shopping if i["priority"] in ("must", "core", "pp", "power") and not i.get("optional")]
+    cmin, cmax = _cost(must_core + [g for g in gt_auto if not g.get("optional")])
+
+    # Dedupe shopping by id (keep first / higher priority)
+    shopping = _dedupe(shopping)
+    gt_auto = _dedupe(gt_auto)
+
+    strategy = _strategy_text(car, track, profile, drivetrain, tire, pp_limit, cl, style)
+
+    return {
+        "car": car,
+        "track": track,
+        "profile": profile,
+        "drivetrain": drivetrain,
+        "collector_level": cl,
+        "tire": tire,
+        "strategy": strategy,
+        "shopping": shopping,
+        "gt_auto": gt_auto,
+        "setup": setup,
+        "warnings": warnings,
+        "notes": notes,
+        "skipped": skipped,
+        "cost_min": cmin,
+        "cost_max": cmax,
+        "pp_limit": pp_limit,
+        "style": style,
+        "weather": weather,
+    }
+
+
+def _rank_swaps(swaps, pp_limit, profile):
+    """Heuristique : gros moteurs d'abord, sauf limite PP basse."""
+    POWER_HINTS = [
+        ("chiron", 100), ("huayra", 92), ("demon", 88), ("hellcat", 80),
+        ("vr38", 86), ("r26b", 90), ("2jz", 78), ("ls7", 74), ("ls9", 80),
+        ("lt5", 76), ("lt4", 72), ("vrh35", 88), ("evo-final-gr.b", 84),
+        ("k20c1", 60), ("b18c", 40), ("se75e", 55), ("mdya", 82),
+        ("dkh-911", 80), ("m97", 70), ("h25a", 75), ("v8-suzuki", 85),
+        ("3s-gte", 58), ("13b-rew", 62), ("rb26", 77), ("sr20", 52),
+        ("1lr-gue", 83), ("f140", 90), ("f136", 70), ("l539", 88),
+        ("byh-r8", 68), ("p65b44", 72), ("m159", 86), ("8.0-wr16", 100),
+        ("windsor", 64), ("voodoo", 70), ("coyote", 66), ("k24a", 48),
+        ("hr-414e", 80), ("vk45", 72), ("lz20b", 78), ("ej20", 60),
+        ("k14c", 35), ("gti-vgt", 80), ("r5-20vt", 70), ("690t", 74),
+        ("ctr38", 85), ("959.50", 78), ("m64", 55),
+    ]
+    ranked = []
+    for s in swaps:
+        key = s["engine"].lower()
+        score = 50
+        for needle, val in POWER_HINTS:
+            if needle in key:
+                score = val
+                break
+        if pp_limit and pp_limit < 600:
+            score = 100 - score  # milder engines first
+        if profile["surface"] in ("dirt", "snow") and any(x in key for x in ("evo", "ej20", "gr.b", "quattro")):
+            score += 15
+        ranked.append({**s, "score": score})
+    ranked.sort(key=lambda x: -x["score"])
+    return ranked
+
+
+def _dedupe(items):
+    seen = set()
+    out = []
+    rank = {"must": 0, "core": 1, "pp": 2, "power": 3, "optional": 4}
+    items = sorted(items, key=lambda i: rank.get(i.get("priority"), 9))
+    for it in items:
+        if it["id"] in seen:
+            continue
+        seen.add(it["id"])
+        out.append(it)
+    return out
+
+
+def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide):
+    layout = profile["layout"]
+    surface = profile["surface"]
+    hills = profile["hills"]
+    stable = style == "stable"
+    chrono = style == "chrono"
+    drift = style == "drift"
+
+    # Downforce windows (GT7 typical unlocks)
+    if not has_gt_auto or surface != "tarmac":
+        aero = {
+            "front": "—",
+            "rear": "—",
+            "note": "Pas d'aéro (terre/neige) ou GT Auto off. Équilibre 100% châssis / LSD.",
+        }
+    elif layout == "high_speed":
+        aero = {
+            "front": "20–40 (sur 100)  |  diffuseur : 50–60",
+            "rear": "aileron 70–110  |  custom 80–130",
+            "note": "Moins d'appui, un peu plus à l'arrière pour ne pas décrocher en courbe rapide.",
+        }
+        if profile.get("oval") or "route x" in track["name"].lower():
+            aero = {
+                "front": "0–20",
+                "rear": "0–60 (wingless si dispo)",
+                "note": "Drag killer. Stabilise au LSD et à la géométrie, pas à l'aileron.",
+            }
+    elif layout == "technical":
+        aero = {
+            "front": "80–100",
+            "rear": "aileron 120–160  |  custom 150–200  |  diffuseur 80–100",
+            "note": "Max appui. Si sous-vireur : +avant ou −arrière. Si survireur : +arrière.",
+        }
+    else:
+        aero = {
+            "front": "60–85",
+            "rear": "aileron 100–140  |  custom 120–170",
+            "note": "Départ 45/55 environ (un peu plus à l'arrière). Ajuste après 3 tours.",
+        }
+
+    # Ride height / springs — percentages of typical GT7 sliders
+    if surface in ("dirt", "snow"):
+        ride = {
+            "front": "plutôt haut (70–90% de la plage, loin du talonnage)",
+            "rear": "égal ou +2 à +5 mm vs l'avant",
+            "note": "Garde de la course. Anti-plongée naturelle > look bas.",
+        }
+        springs = {
+            "front": "souple / médium (40–55%)",
+            "rear": "légèrement plus ferme que l'avant en 4WD, plus souple en propulsion",
+        }
+        arbs = {"front": "2–4", "rear": "1–3"}
+        dampers = {
+            "comp_fast": "Avant 2–3 / Arrière 2–3  (absorbe les cailloux)",
+            "comp_slow": "Avant 3–4 / Arrière 3–4",
+            "ext_fast": "Avant 4–6 / Arrière 4–6",
+            "ext_slow": "Avant 4–5 / Arrière 5–6",
+        }
+    else:
+        low = "le plus bas possible sans frotter les vibreurs"
+        if hills == "mountain" or "nordschleife" in track["name"].lower() or "panorama" in track["name"].lower():
+            low = "bas, mais +2–4 mm vs le minimum (compressions, crêtes)"
+        ride = {
+            "front": low,
+            "rear": "+2 à +6 mm vs l'avant (anti-squat visuel, plus de rotation)",
+            "note": "Si tu frottes : remonte d'abord l'avant. Talonnage = perte de platine, pas un look.",
+        }
+        if layout == "high_speed":
+            springs = {"front": "ferme (65–80%)", "rear": "ferme (60–75%)"}
+            arbs = {"front": "4–6", "rear": "3–5"}
+        elif layout == "technical":
+            springs = {"front": "médium (50–65%)", "rear": "médium-souple (45–60%)"}
+            arbs = {"front": "3–5", "rear": "2–4"}
+        else:
+            springs = {"front": "médium-ferme (55–70%)", "rear": "médium (50–65%)"}
+            arbs = {"front": "3–5", "rear": "2–4"}
+        if drivetrain == "FF":
+            arbs = {"front": "2–4 (évite le sous-virage)", "rear": "4–6"}
+        if drivetrain == "MR":
+            arbs["rear"] = "2–3 (l'arrière doit vivre un peu)"
+        dampers = {
+            "comp_fast": "Avant 3–4 / Arrière 3–4   (vibreurs : baisse d'1)",
+            "comp_slow": "Avant 4–6 / Arrière 4–5   (chrono : +1 avant)",
+            "ext_fast": "Avant 5–7 / Arrière 6–8",
+            "ext_slow": "Avant 5–6 / Arrière 6–7   (si survireur en relâché : +1 arrière)",
+        }
+        if stable:
+            springs = {k: v + " — vers le haut de la fourchette" for k, v in springs.items()}
+
+    camber = {
+        "front": "−2.0 à −2.8°" if not drift else "−0.5 à −1.5°",
+        "rear": "−1.6 à −2.4°" if not drift else "−0.8 à −1.8°",
+        "note": "Intérieur d'usure trop chaud : moins de carrossage. Extérieur trop chaud : plus de carrossage.",
+    }
+    if drivetrain == "FF":
+        camber["front"] = "−2.4 à −3.2°"
+    toe = {
+        "front": "0.00 à 0.10° ouvert (entrée)" if not stable else "0.00 à 0.05° ouvert",
+        "rear": "0.10 à 0.20° pincé (stabilité)",
+    }
+    if drift:
+        toe = {"front": "0.15–0.30° ouvert", "rear": "0.05–0.15° ouvert"}
+    if drivetrain == "MR" and chrono:
+        toe["rear"] = "0.08 à 0.14° pincé (un peu moins, pour tourner)"
+
+    # LSD numbers — GT7 typically 5–60 sliders, initial 5–60
+    if drift:
+        lsd = {"initial": "8–12", "accel": "40–55", "decel": "20–35",
+               "note": "Accel élevé pour tenir la glisse. Décel moyen pour engager."}
+    elif surface in ("dirt", "snow"):
+        lsd = {"initial": "6–10", "accel": "12–22", "decel": "8–16",
+               "note": "LSD souple : tu veux que la roue intérieure lâche un peu."}
+    elif drivetrain == "FF":
+        lsd = {"initial": "8–12", "accel": "18–28", "decel": "8–14",
+               "note": "Accel trop fort = sous-virage en sortie. Décel trop fort = rentre pas."}
+    elif drivetrain == "4WD":
+        lsd = {"initial": "10–16", "accel": "18–28", "decel": "12–20",
+               "note": "Couple centre : 35/65 à 45/55 (plus à l'arrière = plus vivant). Terre : 50/50."}
+    elif drivetrain == "MR":
+        lsd = {"initial": "8–12", "accel": "16–24", "decel": "10–16",
+               "note": "MR survire à l'accélération : n'exagère pas l'accel LSD. Décel trop fort = tête-à-queue à l'attaque."}
+    else:  # FR / RR
+        lsd = {"initial": "10–14", "accel": "20–32", "decel": "12–20",
+               "note": "Sous-vireur à l'attaque : +decel. Survireur en sortie : −accel. Instable au point corde : +initial."}
+    if stable and not drift:
+        lsd = {**lsd, "accel": lsd["accel"] + " (vers le bas)", "decel": lsd["decel"] + " (vers le haut)"}
+
+    # Transmission
+    vmax = profile["target_speed"]
+    if layout == "high_speed":
+        trans_note = (
+            f"Vmax cible ≈ {vmax} km/h en fin de plus longue ligne ({int(track['longest_straight'])} m). "
+            "1re courte pour la relance, 2–avant-dernière en progression régulière, dernière qui touche le rupteur "
+            "pile à la cible — pas 20 km/h trop longue."
+        )
+    else:
+        trans_note = (
+            f"Vmax cible ≈ {vmax} km/h. Privilégie la relance : rapports plus serrés dans le milieu. "
+            "Si tu tapes le rupteur trop tôt en dernière, allonge le pont (final drive ↓)."
+        )
+
+    ecu = "100%"
+    ballast = "0 kg"
+    ballast_pos = "0 (centre)"
+    if pp_limit:
+        ecu = "Descendre le % jusqu'à passer sous la limite (pas par pas de 1%)."
+        ballast = "0 kg d'abord. Si 1–3 PP au-dessus : 10–30 kg plutôt que de vider l'ECU."
+        if drivetrain == "FF":
+            ballast_pos = "vers l'arrière (50–80) pour faire tourner l'auto"
+        elif drivetrain == "MR":
+            ballast_pos = "légèrement vers l'avant (20–40) si l'arrière est trop vivant"
+        else:
+            ballast_pos = "0–30, ajuste selon le train qui décroche"
+
+    brakes_force = "6–7" if tire["grip"] >= 7 else "5–6"
+    if surface != "tarmac":
+        brakes_force = "4–5"
+    brake_bal = "2–3 vers l'arrière" if drivetrain in ("FR", "MR", "RR") else "0–2 vers l'avant"
+
+    nfr = {
+        "front": "2.35–2.55 Hz" if layout != "technical" else "2.20–2.40 Hz",
+        "rear": "2.15–2.35 Hz" if layout != "technical" else "2.05–2.25 Hz",
+        "note": "Fréquence naturelle : avant un peu plus haute que l'arrière. Si tu as les Hz à l'écran, c'est plus fiable que le % de ressort.",
+    }
+
+    return {
+        "tires": tire["name_fr"],
+        "ride": ride,
+        "springs": springs,
+        "nfr": nfr,
+        "arbs": arbs,
+        "dampers": dampers,
+        "camber": camber,
+        "toe": toe,
+        "lsd": lsd,
+        "aero": aero,
+        "transmission": trans_note,
+        "final_drive": "Ajuste le pont pour que la dernière arrive au rupteur à la Vmax cible, pas avant le freinage de la ligne.",
+        "ecu": ecu,
+        "ballast": ballast,
+        "ballast_pos": ballast_pos,
+        "brakes_force": brakes_force,
+        "brake_balance": brake_bal,
+        "abs": "1–2  (0 seulement si tu gères parfaitement ; 3+ = trop de distance)",
+        "tcs": (
+            "0 chrono / 1–2 stable. 4WD terre : 2–4. Pluie : 2–5."
+            if surface == "tarmac"
+            else "Terre 1–3. Neige 3–5. Drift : 0."
+        ),
+        "asm": "OFF",
+        "countersteer": "ON si pad, OFF si volant (sauf terre).",
+        "controller": _controller_note(drivetrain, surface, style),
+        "session_plan": _session_plan(profile, drivetrain, pp_limit),
+    }
+
+
+def _controller_note(drivetrain, surface, style):
+    if style == "drift":
+        return "Sensibilité direction 0 / vs 3–5. Couple de rappel faible."
+    if drivetrain == "FF":
+        return "N'attaque pas trop les vibreurs intérieurs : une FF se cale. Trail-brake léger pour la faire rentrer."
+    if drivetrain == "MR":
+        return "Sois propre à l'attaque. Relâche en courbe rapide = l'arrière part. Ajoute les gaz progressivement."
+    if drivetrain == "4WD":
+        return "Tu peux remettre les gaz tôt. Si sous-virage : moins d'angle, plus de gaz, ou couple vers l'arrière."
+    return "Classique propulsion : rotate au frein, gaz au cordon. Si elle pousse : +decel LSD ou moins d'appui AR."
+
+
+def _session_plan(profile, drivetrain, pp_limit):
+    steps = [
+        "1. Monte les pièces chassis (poids, susp, LSD, freins, boîte) AVANT le moteur.",
+        "2. GT Auto : kit large + jantes, puis aéro (avant, diffuseur/arrière, aileron).",
+        "3. Swap si prévu, ensuite seulement les kits moteur.",
+        "4. 3 tours outlap pour chauffer. Lis les T° pneus (int/mid/ext).",
+        "5. Ajuste carrossage (T°) puis LSD (comportement) puis aéro (courbes rapides).",
+        "6. Boîte : si tu ruptes avant le freinage → allonge. Si tu n'arrives pas au rupteur → raccourcis.",
+    ]
+    if pp_limit:
+        steps.append(f"7. PP {pp_limit:.0f} : ECU % → bridle → lest. Ne descends pas l'appui pour 'gagner' 2 PP.")
+    if profile["surface"] != "tarmac":
+        steps.append("7. Terre/neige : plus haut, plus souple, TCS un cran au-dessus, LSD plus ouvert.")
+    return steps
+
+
+def _strategy_text(car, track, profile, drivetrain, tire, pp_limit, cl, style):
+    bits = [
+        f"{car['full_name']} ({drivetrain}, {car['category']}) sur {track['name']}.",
+        f"Profil circuit : {', '.join(profile['labels'])} — {int(track['length'])} m, "
+        f"ligne {int(track['longest_straight'])} m, {track['corners']} virages, Δh {int(track['elevation'])} m.",
+        f"Pneus : {tire['name_fr']}. Style : {style}. Rang collectionneur : {cl}.",
+    ]
+    if pp_limit:
+        bits.append(f"Objectif : coller {pp_limit:.0f} PP sans vider la voiture — chassis d'abord, puissance ensuite, detune chirurgical.")
+    else:
+        bits.append("Pas de limite PP : on cherche le chrono (ou la stabilité, selon le style), pas le règlement.")
+    if car.get("has_swap") and cl >= 50:
+        bits.append(f"{len(car['swaps'])} swap(s) moteur disponibles.")
+    return " ".join(bits)
+
+
+def suggest_cars(db, track, opts, limit=12):
+    """Propose des voitures qui collent au règlement / circuit."""
+    cats = opts.get("categories") or []
+    dts = opts.get("drivetrains") or []
+    types = opts.get("car_types") or []
+    want_swap = bool(opts.get("prefer_swap"))
+    surface = track["profile"]["surface"]
+    scored = []
+    for c in db.cars:
+        if cats and c["category"] not in cats:
+            if not (c["category"] == "Road" and any(x.startswith("N") for x in cats)):
+                continue
+        if dts and c["drivetrain"] not in dts:
+            continue
+        if types and c["car_type"] not in types:
+            continue
+        score = 0
+        if surface == "dirt" and (c["drivetrain"] == "4WD" or c["category"] == "Gr.B"):
+            score += 40
+        if surface == "tarmac" and c["category"] in ("Gr.3", "Gr.4") and not cats:
+            score += 15
+        if c["has_swap"]:
+            score += 10 if want_swap else 3
+        if c["drivetrain"] == "MR":
+            score += 4
+        if c["drivetrain"] == "FR":
+            score += 3
+        scored.append((score, c))
+    scored.sort(key=lambda x: (-x[0], x[1]["full_name"]))
+    return [c for _, c in scored[:limit]]
