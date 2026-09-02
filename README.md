@@ -58,6 +58,12 @@ npx vercel --prod
 
 La traction (FF/FR/MR/RR/4WD) est **déduite du nom** + table d’exceptions. Tu peux la forcer dans Options atelier.
 
+## Couverture (patch 1.71 — août 2026)
+
+- **584 voitures** (gt7info) : Caterham Seven Superlight R500, IONIQ 6 N, Chaser Tourer V, Mark II Tourer V inclus.
+- **228 swaps** : base gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent manquer.
+- Miniatures : gtplus.app (repli sur initiales si l’image n’existe pas).
+
 ## Limites honnêtes
 
 - Pas de PP stock exact pour chaque road car (les Gr. ont une fourchette).

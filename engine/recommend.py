@@ -11,6 +11,8 @@ from .catalog import (
     TIRE_COMPOUNDS,
     part_unlocked,
 )
+from .gearing import build_gearing
+from .symptoms import apply_symptoms
 
 
 def _tire_by_code(code: str):
@@ -91,6 +93,7 @@ def recommend(car, track, opts):
     categories = opts.get("categories") or []
     drivetrain_filters = opts.get("drivetrains") or []
     car_types = opts.get("car_types") or []
+    symptoms = opts.get("symptoms") or []
 
     profile = track["profile"]
     warnings = []
@@ -456,6 +459,7 @@ def recommend(car, track, opts):
         weather=weather,
         has_gt_auto=has_gt_auto,
         allow_wide=allow_wide and not race_car,
+        symptoms=symptoms,
     )
 
     # costs
@@ -541,7 +545,8 @@ def _dedupe(items):
     return out
 
 
-def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide):
+def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide, symptoms=None):
+    symptoms = symptoms or []
     layout = profile["layout"]
     surface = profile["surface"]
     hills = profile["hills"]
@@ -668,19 +673,12 @@ def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weat
     if stable and not drift:
         lsd = {**lsd, "accel": lsd["accel"] + " (vers le bas)", "decel": lsd["decel"] + " (vers le haut)"}
 
-    # Transmission
-    vmax = profile["target_speed"]
-    if layout == "high_speed":
-        trans_note = (
-            f"Vmax cible ≈ {vmax} km/h en fin de plus longue ligne ({int(track['longest_straight'])} m). "
-            "1re courte pour la relance, 2–avant-dernière en progression régulière, dernière qui touche le rupteur "
-            "pile à la cible — pas 20 km/h trop longue."
-        )
-    else:
-        trans_note = (
-            f"Vmax cible ≈ {vmax} km/h. Privilégie la relance : rapports plus serrés dans le milieu. "
-            "Si tu tapes le rupteur trop tôt en dernière, allonge le pont (final drive ↓)."
-        )
+    gearing = build_gearing(track, profile, style, symptoms)
+    vmax = gearing["max_speed"]
+    trans_note = (
+        f"Étalonnage auto : Vmax {vmax} km/h · {gearing['gears']} rapports · pont {gearing['final_drive']:.3f} "
+        f"({gearing['spread']}). Détail dans le tableau d'étalonnage."
+    )
 
     ecu = "100%"
     ballast = "0 kg"
@@ -706,7 +704,7 @@ def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weat
         "note": "Fréquence naturelle : avant un peu plus haute que l'arrière. Si tu as les Hz à l'écran, c'est plus fiable que le % de ressort.",
     }
 
-    return {
+    setup = {
         "tires": tire["name_fr"],
         "ride": ride,
         "springs": springs,
@@ -718,7 +716,8 @@ def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weat
         "lsd": lsd,
         "aero": aero,
         "transmission": trans_note,
-        "final_drive": "Ajuste le pont pour que la dernière arrive au rupteur à la Vmax cible, pas avant le freinage de la ligne.",
+        "final_drive": f"Pont {gearing['final_drive']:.3f} — la dernière doit ruper en bout de ligne, pas avant.",
+        "gearing": gearing,
         "ecu": ecu,
         "ballast": ballast,
         "ballast_pos": ballast_pos,
@@ -735,6 +734,7 @@ def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weat
         "controller": _controller_note(drivetrain, surface, style),
         "session_plan": _session_plan(profile, drivetrain, pp_limit),
     }
+    return apply_symptoms(setup, symptoms)
 
 
 def _controller_note(drivetrain, surface, style):

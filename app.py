@@ -10,6 +10,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from engine.catalog import CAR_TYPES, CATEGORIES, DRIVETRAINS, PARTS, TIERS, TIRE_COMPOUNDS, WEATHER
 from engine.database import Database
 from engine.recommend import recommend, suggest_cars
+from engine.symptoms import grouped_symptoms
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(
@@ -28,6 +29,7 @@ def index():
 
 @app.get("/api/meta")
 def meta():
+    garage = db.garage()
     return jsonify({
         "categories": CATEGORIES,
         "car_types": CAR_TYPES,
@@ -35,8 +37,20 @@ def meta():
         "tires": TIRE_COMPOUNDS,
         "weather": WEATHER,
         "tiers": TIERS,
-        "counts": {"cars": len(db.cars), "tracks": len(db.tracks), "parts": len(PARTS)},
+        "symptoms": grouped_symptoms(),
+        "coverage": garage["coverage"],
+        "counts": {
+            "cars": len(db.cars),
+            "tracks": len(db.tracks),
+            "parts": len(PARTS),
+            "swaps": garage["coverage"]["swaps"],
+        },
     })
+
+
+@app.get("/api/garage")
+def garage():
+    return jsonify(db.garage())
 
 
 @app.get("/api/cars")
@@ -47,8 +61,19 @@ def cars():
     car_type = request.args.get("car_type") or None
     has_swap = request.args.get("has_swap")
     has_swap = True if has_swap in ("1", "true", "yes") else None
-    limit = min(int(request.args.get("limit") or 60), 200)
-    hits = db.search_cars(q=q, category=category, drivetrain=drivetrain, car_type=car_type, has_swap=has_swap, limit=limit)
+    maker_id = request.args.get("maker_id")
+    region_id = request.args.get("region_id")
+    limit = min(int(request.args.get("limit") or 60), 400)
+    hits = db.search_cars(
+        q=q,
+        category=category,
+        drivetrain=drivetrain,
+        car_type=car_type,
+        has_swap=has_swap,
+        maker_id=int(maker_id) if maker_id not in (None, "") else None,
+        region_id=int(region_id) if region_id not in (None, "") else None,
+        limit=limit,
+    )
     return jsonify(hits)
 
 

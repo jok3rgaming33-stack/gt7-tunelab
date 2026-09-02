@@ -270,6 +270,28 @@ def _norm(s: str) -> str:
     return (s or "").strip()
 
 
+def slugify(text: str) -> str:
+    raw = (text or "").lower().replace("'", "").replace("'", "").replace("'", "")
+    raw = re.sub(r"\s+", "-", raw.strip())
+    raw = re.sub(r"[^a-z0-9.()+_-]", "", raw)
+    return re.sub(r"-{2,}", "-", raw).strip("-")
+
+
+IMG_BASE = "https://gtplus.app/images/cars"
+
+
+def car_images(maker: str, name: str) -> dict:
+    full = slugify(f"{maker} {name}")
+    short = slugify(name)
+    return {
+        "slug": full,
+        "thumb": f"{IMG_BASE}/thumb/{full}.png",
+        "image": f"{IMG_BASE}/{full}.jpg",
+        "thumb_alt": f"{IMG_BASE}/thumb/{short}.png",
+        "image_alt": f"{IMG_BASE}/{short}.jpg",
+    }
+
+
 def infer_category(name: str) -> str:
     n = name.lower()
     if "gr.1" in n or "gr. 1" in n:
@@ -436,11 +458,36 @@ class Database:
         self.root = Path(root) if root else DATA
 
     @cached_property
+    def countries(self) -> dict[int, dict]:
+        out = {}
+        path = self.root / "countries.csv"
+        if not path.exists():
+            return out
+        with open(path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                cid = int(row["ID"])
+                out[cid] = {
+                    "id": cid,
+                    "name": row.get("Name_fr") or row["Name"],
+                    "code": row.get("Code") or "",
+                }
+        return out
+
+    @cached_property
     def makers(self) -> dict[int, dict]:
+        countries = self.countries
         out = {}
         with open(self.root / "makers.csv", encoding="utf-8") as f:
             for row in csv.DictReader(f):
-                out[int(row["ID"])] = {"id": int(row["ID"]), "name": row["Name"], "country": row["Country"]}
+                cid = int(row["Country"]) if row.get("Country") not in (None, "") else 0
+                region = countries.get(cid, {"name": "Autres", "code": ""})
+                out[int(row["ID"])] = {
+                    "id": int(row["ID"]),
+                    "name": row["Name"],
+                    "country": cid,
+                    "region": region["name"],
+                    "region_code": region.get("code") or "",
+                }
         return out
 
     @cached_property
@@ -458,19 +505,23 @@ class Database:
                 drivetrain = infer_drivetrain(cid, name, category)
                 pp_lo, pp_hi = infer_pp_band(category, name)
                 full = f"{maker['name']} {name}"
+                imgs = car_images(maker["name"], name)
                 cars.append({
                     "id": cid,
                     "name": name,
                     "full_name": full,
                     "maker_id": maker_id,
                     "maker": maker["name"],
+                    "region_id": maker.get("country", 0),
+                    "region": maker.get("region") or "Autres",
                     "category": category,
                     "car_type": car_type,
                     "drivetrain": drivetrain,
                     "pp_lo": pp_lo,
                     "pp_hi": pp_hi,
                     "is_race": car_type == "Racing Car" or category.startswith("Gr.") or category in ("Super Formula", "Kart"),
-                    "search": f"{full} {category} {drivetrain} {car_type}".lower(),
+                    "search": f"{full} {category} {drivetrain} {car_type} {maker.get('region','')}".lower(),
+                    **imgs,
                 })
         cars.sort(key=lambda c: c["full_name"].lower())
         # attach swaps later
@@ -542,11 +593,16 @@ class Database:
     def tracks_by_id(self) -> dict[int, dict]:
         return {t["id"]: t for t in self.tracks}
 
-    def search_cars(self, q="", category=None, drivetrain=None, car_type=None, has_swap=None, limit=80):
+    def search_cars(self, q="", category=None, drivetrain=None, car_type=None, has_swap=None,
+                    maker_id=None, region_id=None, limit=80):
         q = (q or "").strip().lower()
         hits = []
         for c in self.cars:
             if q and q not in c["search"]:
+                continue
+            if maker_id is not None and c["maker_id"] != int(maker_id):
+                continue
+            if region_id is not None and c.get("region_id") != int(region_id):
                 continue
             if category and c["category"] != category and not (
                 category.startswith("N") and c["category"] == "Road"
@@ -562,6 +618,56 @@ class Database:
             if len(hits) >= limit:
                 break
         return hits
+
+    def garage(self) -> dict:
+        regions: dict[int, dict] = {}
+        makers_out = []
+        for m in sorted(self.makers.values(), key=lambda x: x["name"].lower()):
+            count = sum(1 for c in self.cars if c["maker_id"] == m["id"])
+            if not count:
+                continue
+            rid = m.get("country", 0)
+            regions.setdefault(rid, {
+                "id": rid,
+                "name": m.get("region") or "Autres",
+                "code": m.get("region_code") or "",
+                "count": 0,
+            })
+            regions[rid]["count"] += count
+            makers_out.append({
+                "id": m["id"],
+                "name": m["name"],
+                "region_id": rid,
+                "region": m.get("region") or "Autres",
+                "count": count,
+            })
+        swap_count = sum(len(c["swaps"]) for c in self.cars)
+        cars_min = [{
+            "id": c["id"],
+            "name": c["name"],
+            "full_name": c["full_name"],
+            "maker_id": c["maker_id"],
+            "maker": c["maker"],
+            "region_id": c.get("region_id", 0),
+            "category": c["category"],
+            "drivetrain": c["drivetrain"],
+            "has_swap": c["has_swap"],
+            "thumb": c.get("thumb"),
+            "thumb_alt": c.get("thumb_alt"),
+            "image": c.get("image"),
+        } for c in self.cars]
+        return {
+            "regions": sorted(regions.values(), key=lambda r: (-r["count"], r["name"])),
+            "makers": makers_out,
+            "cars": cars_min,
+            "coverage": {
+                "cars": len(self.cars),
+                "swaps": swap_count,
+                "patch": "1.71 (août 2026)",
+                "cars_note": "Liste gt7info : les 4 voitures 1.71 (Caterham Seven, IONIQ 6 N, Chaser, Mark II) sont présentes.",
+                "swaps_note": "Swaps gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent manquer.",
+            },
+        }
 
     def search_tracks(self, q="", limit=80):
         q = (q or "").strip().lower()

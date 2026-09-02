@@ -4,6 +4,9 @@ const state = {
   style: "polyvalent",
   meta: null,
   last: null,
+  garage: null,
+  regionId: null,
+  makerId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +33,11 @@ function rangePrice(a, b) {
 async function loadMeta() {
   const meta = await (await fetch("/api/meta")).json();
   state.meta = meta;
-  $("stats").innerHTML = `${meta.counts.cars} voitures · ${meta.counts.tracks} tracés · ${meta.counts.parts} pièces atelier`;
+  $("stats").innerHTML = `${meta.counts.cars} voitures · ${meta.counts.swaps || "—"} swaps · ${meta.counts.tracks} tracés`;
+  if (meta.coverage) {
+    $("footNote").innerHTML = `${meta.coverage.cars_note} ${meta.coverage.swaps_note} Miniatures : gtplus.app. Non affilié à PD / SIE.`;
+  }
+  fillSymptoms(meta.symptoms || []);
   fillSelect($("weather"), meta.weather, "id", "label", "dry");
   const tires = $("tires");
   meta.tires.forEach((t) => {
@@ -153,7 +160,21 @@ function payload() {
     allow_swap: $("allowSwap").checked,
     has_ultimate: $("ultimate").checked,
     drivetrain_override: $("dtOverride").value || null,
+    symptoms: selectedChips($("symptomGroups")),
   };
+}
+
+function fillSymptoms(groups) {
+  const root = $("symptomGroups");
+  if (!root) return;
+  root.innerHTML = groups.map((g) => `
+    <div class="sym-group">
+      <h4>${g.label}</h4>
+      <div class="chips sym">${g.items.map((s) =>
+        `<button type="button" data-id="${s.id}" title="${s.hint || ""}">${s.label}</button>`
+      ).join("")}</div>
+    </div>`).join("");
+  root.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => b.classList.toggle("on")));
 }
 
 async function generate() {
@@ -299,6 +320,8 @@ function render(d) {
         ${card("Freins", `<p>Force ${s.brakes_force}<br>Répartition ${s.brake_balance}<br>ABS ${s.abs}</p>`)}
         ${card("Aides", `<p>TCS ${s.tcs}<br>ASM ${s.asm}<br>Contre-braquage auto ${s.countersteer}</p>`)}
         ${card("Boîte / pont", `<p>${s.transmission}</p><p>${s.final_drive}</p>`, true)}
+        ${gearingCard(s.gearing)}
+        ${diagCard(s.diagnostics)}
         ${card("PP / ECU / lest", `<p>ECU : ${s.ecu}</p><p>Lest : ${s.ballast}</p><p>Position : ${s.ballast_pos}</p>`, true)}
         ${card("Pilotage", s.controller, true)}
       </div>
@@ -343,6 +366,30 @@ function renderSwaps(d) {
 function card(title, body, wide = false) {
   const inner = body.startsWith("<") ? body : `<p>${body}</p>`;
   return `<div class="card${wide ? " wide" : ""}"><h4>${title}</h4>${inner}</div>`;
+}
+
+function gearingCard(g) {
+  if (!g) return "";
+  const rows = (g.ratios || []).map((r) => `<tr><td>${r.gear}${r.gear === 1 ? "re" : "e"}</td><td>${Number(r.ratio).toFixed(3)}</td></tr>`).join("");
+  return `<div class="card wide"><h4>Étalonnage de boîte</h4>
+    <p>${g.note || ""}</p>
+    <table class="gear-table">
+      <tr><td>Vmax auto</td><td><strong>${g.max_speed} km/h</strong></td></tr>
+      <tr><td>Rapports</td><td>${g.gears} · ${g.spread}</td></tr>
+      <tr><td>Pont</td><td><strong>${Number(g.final_drive).toFixed(3)}</strong></td></tr>
+      ${rows}
+    </table>
+    <ul>${(g.howto || []).map((h) => `<li>${h}</li>`).join("")}</ul>
+  </div>`;
+}
+
+function diagCard(d) {
+  if (!d || !(d.corrections || []).length) return "";
+  return `<div class="card wide"><h4>Diagnostic — ${d.labels.join(" · ")}</h4>
+    <div class="fix-list">${d.corrections.map((c) =>
+      `<div class="fix-item"><b>${c.area}</b><p>${c.text}</p><p class="meta">${c.symptom}</p></div>`
+    ).join("")}</div>
+  </div>`;
 }
 
 function tierLabel(t) {
@@ -398,7 +445,101 @@ function copyPlan(d) {
   lines.push(`Aéro AV ${s.aero.front} / AR ${s.aero.rear}`);
   lines.push(`LSD init ${s.lsd.initial} / accel ${s.lsd.accel} / decel ${s.lsd.decel}`);
   lines.push(`TCS ${s.tcs} · ABS ${s.abs}`);
+  if (s.gearing) {
+    lines.push("");
+    lines.push("ETALONNAGE BOITE");
+    lines.push(`Vmax auto ${s.gearing.max_speed} km/h · pont ${s.gearing.final_drive}`);
+    (s.gearing.ratios || []).forEach((r) => lines.push(`  ${r.gear} : ${Number(r.ratio).toFixed(3)}`));
+  }
+  if (s.diagnostics?.corrections?.length) {
+    lines.push("");
+    lines.push("DIAGNOSTIC");
+    s.diagnostics.corrections.forEach((c) => lines.push(`- ${c.area}: ${c.text}`));
+  }
   navigator.clipboard.writeText(lines.join("\n")).then(() => alert("Plan copié dans le presse-papiers."));
+}
+
+function imgTag(src, alt, fallback) {
+  const initials = (alt || "?").slice(0, 2).toUpperCase();
+  return `<img src="${src || ""}" alt="" loading="lazy" data-fb="${fallback || ""}" data-ph="${initials}">`;
+}
+function bindThumbs(root) {
+  root.querySelectorAll("img").forEach((img) => {
+    img.addEventListener("error", function fail() {
+      if (img.dataset.fb) {
+        const next = img.dataset.fb;
+        img.dataset.fb = "";
+        img.src = next;
+        return;
+      }
+      const d = document.createElement("div");
+      d.className = "ph";
+      d.textContent = img.dataset.ph || "?";
+      img.replaceWith(d);
+    }, { once: false });
+  });
+}
+
+async function ensureGarage() {
+  if (state.garage) return state.garage;
+  state.garage = await (await fetch("/api/garage")).json();
+  return state.garage;
+}
+
+async function openGarage() {
+  const g = await ensureGarage();
+  $("garageModal").hidden = false;
+  renderRegions(g);
+  renderMakers(g);
+  renderCarGrid(g);
+}
+
+function renderRegions(g) {
+  const row = $("regionRow");
+  row.innerHTML = `<button type="button" data-id="" class="${state.regionId == null ? "on" : ""}">Toutes</button>` +
+    g.regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.regionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
+  row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    state.regionId = b.dataset.id === "" ? null : Number(b.dataset.id);
+    state.makerId = null;
+    renderRegions(g); renderMakers(g); renderCarGrid(g);
+  }));
+}
+
+function renderMakers(g) {
+  const row = $("makerRow");
+  const makers = g.makers.filter((m) => state.regionId == null || m.region_id === state.regionId);
+  row.innerHTML = `<button type="button" data-id="" class="${state.makerId == null ? "on" : ""}">Tous</button>` +
+    makers.map((m) => `<button type="button" data-id="${m.id}" class="${state.makerId === m.id ? "on" : ""}">${m.name} (${m.count})</button>`).join("");
+  row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    state.makerId = b.dataset.id === "" ? null : Number(b.dataset.id);
+    renderMakers(g); renderCarGrid(g);
+  }));
+}
+
+function renderCarGrid(g) {
+  const q = ($("garageSearch").value || "").trim().toLowerCase();
+  const cars = g.cars.filter((c) => {
+    if (state.regionId != null && c.region_id !== state.regionId) return false;
+    if (state.makerId != null && c.maker_id !== state.makerId) return false;
+    if (q && !`${c.full_name} ${c.category} ${c.drivetrain}`.toLowerCase().includes(q)) return false;
+    return true;
+  }).slice(0, 120);
+  $("carGrid").innerHTML = cars.map((c) => `
+    <button type="button" class="car-card" data-id="${c.id}">
+      ${imgTag(c.thumb, c.maker, c.thumb_alt)}
+      <div class="info">
+        <strong>${c.name}</strong>
+        <small>${c.maker} · ${c.drivetrain} · ${c.category}${c.has_swap ? " · swap" : ""}</small>
+      </div>
+    </button>`).join("") || `<p class="meta">Aucun modèle.</p>`;
+  bindThumbs($("carGrid"));
+  $("carGrid").querySelectorAll(".car-card").forEach((b) => b.addEventListener("click", () => {
+    const car = g.cars.find((c) => c.id === Number(b.dataset.id));
+    if (car) {
+      pick("car", car);
+      $("garageModal").hidden = true;
+    }
+  }));
 }
 
 $("collector").addEventListener("input", () => ($("clVal").textContent = $("collector").value));
@@ -411,6 +552,14 @@ document.querySelectorAll("#styleSeg button").forEach((b) => {
 });
 $("go").addEventListener("click", generate);
 $("suggest").addEventListener("click", suggest);
+$("openGarage").addEventListener("click", openGarage);
+$("closeGarage").addEventListener("click", () => ($("garageModal").hidden = true));
+$("garageModal").addEventListener("click", (e) => {
+  if (e.target.id === "garageModal") $("garageModal").hidden = true;
+});
+$("garageSearch").addEventListener("input", debounce(() => {
+  if (state.garage) renderCarGrid(state.garage);
+}, 120));
 bindCombo($("carQuery"), $("carList"), "car");
 bindCombo($("trackQuery"), $("trackList"), "track");
 loadMeta();

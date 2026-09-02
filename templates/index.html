@@ -28,8 +28,9 @@
       <h2>Briefing</h2>
 
       <label>Voiture</label>
+      <button type="button" class="btn ghost" id="openGarage">Région → constructeur → modèle</button>
       <div class="combo" data-kind="car">
-        <input id="carQuery" type="search" placeholder="Nom, marque, Gr.3, GT-R…" autocomplete="off" />
+        <input id="carQuery" type="search" placeholder="Ou cherche un nom, Gr.3, GT-R…" autocomplete="off" />
         <div class="combo-list" id="carList" hidden></div>
       </div>
       <div class="picked" id="carPicked">Aucune voiture</div>
@@ -73,6 +74,12 @@
         <div class="chips" id="dtChips"></div>
       </details>
 
+      <details class="regs" open>
+        <summary>Comportement ressenti (multi-choix)</summary>
+        <p class="hint" style="margin-top:8px">Coche ce que tu sens en piste. Le plan ajuste LSD, aéro, géométrie, freins, boîte… route ou course.</p>
+        <div id="symptomGroups"></div>
+      </details>
+
       <details class="regs">
         <summary>Options atelier</summary>
         <label class="chk"><input id="gtAuto" type="checkbox" checked /> GT Auto débloqué</label>
@@ -99,8 +106,24 @@
     </section>
   </main>
 
-  <footer>
-    Outil communautaire, non affilié à Polyphony Digital / SIE. Bases voitures / circuits / swaps : gt7info.
+  <div class="modal" id="garageModal" hidden>
+    <div class="modal-card">
+      <header>
+        <div>
+          <p class="eyebrow">Garage</p>
+          <h2>Choisir une voiture</h2>
+        </div>
+        <button type="button" class="btn ghost" id="closeGarage">Fermer</button>
+      </header>
+      <input id="garageSearch" type="search" placeholder="Filtrer par nom…" autocomplete="off" />
+      <div class="picker-row" id="regionRow"></div>
+      <div class="picker-row makers" id="makerRow"></div>
+      <div class="car-grid" id="carGrid"></div>
+    </div>
+  </div>
+
+  <footer id="footNote">
+    Outil communautaire, non affilié à Polyphony Digital / SIE. Bases voitures / circuits / swaps : gt7info + patch 1.71.
     PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
   </footer>
 

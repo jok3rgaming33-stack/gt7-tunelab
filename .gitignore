@@ -7,3 +7,5 @@ venv/
 .vercel
 *.log
 
+
+.vercel
