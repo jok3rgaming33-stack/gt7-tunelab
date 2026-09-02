@@ -1,6 +1,8 @@
 # GT7 TuneLab
 
-Outil local pour **automatiser les réglages Gran Turismo 7** : voiture + circuit + rang collectionneur + règlement → liste d’achats (atelier + GT Auto) et feuille de setup.
+Outil pour **automatiser les réglages Gran Turismo 7** : voiture + circuit + rang collectionneur + règlement → liste d’achats (atelier + GT Auto) et feuille de setup.
+
+**Démo :** [https://gt7-tunelab.vercel.app](https://gt7-tunelab.vercel.app)
 
 Ce n’est pas un dump officiel Polyphony. Les PP exacts, la dispo pièce par pièce et les swaps post-v1.61 peuvent différer en jeu. L’outil te donne un **plan d’attaque** à vérifier dans l’atelier.
 
@@ -18,7 +20,7 @@ Puis ouvre [http://127.0.0.1:8765](http://127.0.0.1:8765)
 
 ## Déploiement Vercel
 
-Flask est détecté automatiquement (`app.py` + `requirements.txt`). Les CSS/JS passent par `public/static` (CDN Vercel).
+Flask est détecté automatiquement (`app.py` + `requirements.txt`). Les CSS/JS passent par `public/static` (CDN Vercel). Un push sur `main` redéploie la prod.
 
 ```bat
 npx vercel --prod
