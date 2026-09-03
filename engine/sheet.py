@@ -1,4 +1,11 @@
-"""Feuille de réglages GT7 — valeurs numériques exactes (un cran = un chiffre)."""
+"""Feuille GT7 — unités et champs IDENTIQUES au jeu (Praiano / tes feuilles Nürburgring).
+
+GT7 n'a PAS de constante de ressort ni d'amortos 1–10 à 4 voies.
+Écran réel :
+  hauteur mm · barre 1–10 · compression % · expansion % · fréquence Hz
+  carrossage négatif (affichage positif) · pincement IN/OUT
+  LSD avant ET arrière · appui (échelle selon la caisse)
+"""
 
 from __future__ import annotations
 
@@ -68,190 +75,215 @@ PILOTING = [
     },
 ]
 
-# Deltas numériques appliqués après la base (valeurs GT7).
-SYMPTOM_DELTAS = {
-    "us_entry": {"lsd_dec": -7, "brake_bal": -1, "toe_f": 0.04, "aero_f": 8},
-    "us_mid": {"arb_f": -2, "arb_r": 1, "camber_f": -0.3, "ride_f": -2},
-    "us_exit": {"lsd_acc": -6, "split_r": 5, "aero_r": -8},
-    "os_entry": {"lsd_dec": 6, "lsd_init": 3, "brake_bal": -1, "toe_r": 0.06, "aero_r": 15},
-    "os_mid": {"arb_r": -2, "arb_f": 1, "camber_r": -0.3, "spring_r": 0.35, "aero_r": 12},
-    "os_exit": {"lsd_acc": -8, "tcs": 1, "aero_r": 10},
-    "os_lift": {"damp_es_r": 1, "lsd_init": 3, "arb_r": -1},
-    "brake_unstable": {"brake_bal": -1, "brake_force": -1, "abs": 1, "lsd_dec": 4},
-    "brake_weak": {"brake_force": 2, "abs": 0},
-    "brake_lock_f": {"brake_force": -2, "brake_bal": 1, "abs": 1},
-    "brake_dive": {"spring_f": 0.40, "damp_cs_f": 1, "ride_f": 2},
-    "spin_exit": {"lsd_acc": 6, "lsd_init": 2, "tcs": 1},
-    "spin_inside": {"lsd_acc": 6, "lsd_init": 4, "arb_r": 1},
-    "launch_slow": {},
-    "bottom": {"ride_f": 4, "ride_r": 3, "damp_cf_f": -1},
-    "kerb": {"damp_cf_f": -2, "damp_cf_r": -2, "arb_f": -1, "arb_r": -1},
-    "bounce": {"damp_es_f": 1, "damp_es_r": 2, "damp_cs_f": 1},
-    "stiff": {"spring_f": -0.55, "spring_r": -0.45, "arb_f": -1, "damp_cf_f": -1},
-    "nervous": {"toe_r": 0.08, "lsd_init": 3, "aero_r": 10},
-    "no_rotate": {"toe_f": 0.06, "toe_r": -0.05, "ride_r": 3, "lsd_dec": -4, "arb_f": -1, "arb_r": 1},
-    "squat": {"spring_r": 0.45, "damp_cs_r": 1, "ride_r": 1, "aero_r": 5},
-    "hs_us": {"aero_f": 18, "arb_f": -1, "camber_f": -0.2},
-    "hs_os": {"aero_r": 22, "aero_f": -5, "toe_r": 0.05, "lsd_acc": -3},
-    "hs_wander": {"toe_r": 0.10, "toe_f": -0.04, "aero_f": 8, "aero_r": 12, "arb_f": 1},
-    "drag": {"aero_f": -20, "aero_r": -25},
-    "heat_inner": {"camber_f": 0.5, "camber_r": 0.4},
-    "heat_outer": {"camber_f": -0.4, "camber_r": -0.3},
-    "wear_front": {"brake_bal": 1, "brake_force": -1, "aero_f": -8, "aero_r": 8},
-    "wear_rear": {"lsd_acc": -4, "tcs": 1, "aero_r": 10},
-    "limiter_early": {},
-    "limiter_never": {},
-    "gear_gap": {},
-}
-
 
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def _round(v, nd=0):
-    if nd == 0:
-        return int(round(v))
-    return round(v, nd)
+def _i(v, lo, hi):
+    return int(round(_clamp(v, lo, hi)))
+
+
+def _f(v, lo, hi, nd=2):
+    return round(_clamp(v, lo, hi), nd)
+
+
+def car_band(car: dict) -> str:
+    cat = (car.get("category") or "Road")
+    name = (car.get("name") or car.get("full_name") or "").lower()
+    if cat == "Super Formula" or "super formula" in name or name.startswith("sf19") or name.startswith("sf23"):
+        return "sf"
+    if cat == "Kart" or "kart" in name:
+        return "kart"
+    if cat == "Gr.1" or "lmp" in name or "919 hybrid" in name or "ts050" in name or "gr010" in name:
+        return "proto"
+    if cat in ("Gr.2", "Gr.3") or "gt500" in name or "gt3" in name:
+        return "gt"
+    if cat in ("Gr.4", "Gr.B"):
+        return "gt4"
+    if car.get("car_type") in ("Hypercar", "Vision Gran Turismo") and "gr." not in name:
+        return "hyper"
+    return "road"
+
+
+def is_bumpy(track: dict, profile: dict) -> bool:
+    n = (track.get("name") or "").lower()
+    return any(k in n for k in (
+        "nordschleife", "nurburgring", "nürburgring", "green hell",
+        "panorama", "eiger", "trial mountain", "horse thief", "sardegna - wind",
+    )) or profile.get("hills") == "mountain"
 
 
 def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, cl, pp_limit, weather, has_gt_auto):
-    layout = profile["layout"]
-    surface = profile["surface"]
-    hills = profile["hills"]
-    race = car.get("is_race")
-    name = (track.get("name") or "").lower()
+    """Construit une feuille aux unités GT7, calée Praiano + tes tunes Green Hell."""
+    band = car_band(car)
+    layout = profile.get("layout") or "mixed"
+    surface = profile.get("surface") or "tarmac"
+    bumpy = is_bumpy(track, profile)
     symptoms = symptoms or []
     pilot = pilot or {}
+    name = (track.get("name") or "").lower()
 
-    # ── Base numérique (unités GT7) ────────────────────────────────────
-    n = {
-        "ride_f": 92, "ride_r": 97,
-        "spring_f": 7.85, "spring_r": 7.25,
-        "nfr_f": 2.32, "nfr_r": 2.18,
-        "damp_cs_f": 5, "damp_cs_r": 4,
-        "damp_cf_f": 3, "damp_cf_r": 3,
-        "damp_es_f": 6, "damp_es_r": 6,
-        "damp_ef_f": 5, "damp_ef_r": 5,
-        "arb_f": 4, "arb_r": 3,
-        "camber_f": -2.4, "camber_r": -1.8,
-        "toe_f": 0.08, "toe_r": 0.14,  # + = ouvert AV / pincé AR (affichage)
-        "lsd_init": 12, "lsd_acc": 24, "lsd_dec": 16,
-        "split_f": 40, "split_r": 60,  # 4WD only
-        "aero_f": 70, "aero_r": 120,
-        "brake_force": 6, "brake_bal": 2,  # + vers l'arrière
-        "abs": 1, "tcs": 1, "asm": 0,
-        "countersteer": 1,
-        "ecu": 100, "ballast_kg": 0, "ballast_pos": 0,
-    }
+    # ── Bases par classe (valeurs relevées / Praiano / tes 919 & SF23) ─
+    # ride mm, arb 1-10, comp 20-40, exp 30-50, nf Hz,
+    # camber MAGNITUDE (écran FR « négatif »), toe F=OUT R=IN
+    # lsd F/R init-acc-dec, aero, vmax
+    if band == "sf":
+        n = dict(ride_f=25, ride_r=55, arb_f=7, arb_r=5,
+                 comp_f=32, comp_r=35, exp_f=47, exp_r=47,
+                 nf_f=5.90, nf_r=5.90, camber_f=3.0, camber_r=1.5,
+                 toe_f=0.20, toe_r=0.10,
+                 lsd_fi=0, lsd_fa=0, lsd_fd=0,
+                 lsd_ri=15, lsd_ra=15, lsd_rd=40,
+                 split_f=0, aero_f=1250, aero_r=1600, vmax=360)
+    elif band == "proto":
+        n = dict(ride_f=50, ride_r=70, arb_f=5, arb_r=6,
+                 comp_f=28, comp_r=30, exp_f=38, exp_r=40,
+                 nf_f=4.10, nf_r=4.00, camber_f=3.2, camber_r=2.0,
+                 toe_f=0.20, toe_r=0.20,
+                 lsd_fi=5, lsd_fa=5, lsd_fd=5,
+                 lsd_ri=15, lsd_ra=32, lsd_rd=25,
+                 split_f=35, aero_f=1000, aero_r=1500, vmax=310)
+    elif band == "gt":
+        n = dict(ride_f=58, ride_r=72, arb_f=4, arb_r=5,
+                 comp_f=26, comp_r=28, exp_f=36, exp_r=38,
+                 nf_f=3.45, nf_r=3.35, camber_f=2.8, camber_r=1.8,
+                 toe_f=0.15, toe_r=0.18,
+                 lsd_fi=5, lsd_fa=8, lsd_fd=8,
+                 lsd_ri=10, lsd_ra=22, lsd_rd=24,
+                 split_f=32, aero_f=280, aero_r=420, vmax=290)
+    elif band == "gt4":
+        n = dict(ride_f=72, ride_r=86, arb_f=4, arb_r=4,
+                 comp_f=25, comp_r=27, exp_f=35, exp_r=37,
+                 nf_f=2.95, nf_r=2.85, camber_f=2.4, camber_r=1.6,
+                 toe_f=0.12, toe_r=0.15,
+                 lsd_fi=5, lsd_fa=8, lsd_fd=8,
+                 lsd_ri=10, lsd_ra=20, lsd_rd=22,
+                 split_f=40, aero_f=120, aero_r=180, vmax=270)
+    elif band == "hyper":
+        n = dict(ride_f=78, ride_r=90, arb_f=4, arb_r=5,
+                 comp_f=26, comp_r=28, exp_f=36, exp_r=38,
+                 nf_f=2.85, nf_r=2.75, camber_f=2.6, camber_r=1.7,
+                 toe_f=0.12, toe_r=0.22,
+                 lsd_fi=5, lsd_fa=8, lsd_fd=8,
+                 lsd_ri=12, lsd_ra=24, lsd_rd=26,
+                 split_f=35, aero_f=90, aero_r=160, vmax=320)
+    elif band == "kart":
+        n = dict(ride_f=20, ride_r=22, arb_f=3, arb_r=3,
+                 comp_f=24, comp_r=24, exp_f=34, exp_r=34,
+                 nf_f=4.50, nf_r=4.50, camber_f=1.5, camber_r=1.0,
+                 toe_f=0.05, toe_r=0.05,
+                 lsd_fi=5, lsd_fa=5, lsd_fd=5,
+                 lsd_ri=8, lsd_ra=12, lsd_rd=12,
+                 split_f=50, aero_f=0, aero_r=0, vmax=140)
+    else:  # road — Praiano: bas + rake, NF moyenne, LSD initial BAS, toe AR IN
+        n = dict(ride_f=88, ride_r=98, arb_f=3, arb_r=4,
+                 comp_f=24, comp_r=26, exp_f=34, exp_r=36,
+                 nf_f=2.45, nf_r=2.55, camber_f=2.2, camber_r=1.4,
+                 toe_f=0.10, toe_r=0.18,
+                 lsd_fi=5, lsd_fa=8, lsd_fd=8,
+                 lsd_ri=8, lsd_ra=18, lsd_rd=20,
+                 split_f=38, aero_f=55, aero_r=110, vmax=265)
 
-    if race:
-        n["ride_f"], n["ride_r"] = 82, 86
-        n["spring_f"], n["spring_r"] = 10.40, 9.65
-        n["nfr_f"], n["nfr_r"] = 2.48, 2.32
-        n["aero_f"], n["aero_r"] = 200, 320
+    n.update(brake_force=5, brake_bal=-2, abs=1, tcs=1, asm=0, countersteer=1,
+             ecu=100, ballast_kg=0, ballast_pos=0)
 
-    if surface in ("dirt", "snow"):
-        n.update({
-            "ride_f": 118, "ride_r": 122,
-            "spring_f": 5.60, "spring_r": 5.25,
-            "nfr_f": 1.95, "nfr_r": 1.85,
-            "damp_cs_f": 3, "damp_cs_r": 3,
-            "damp_cf_f": 2, "damp_cf_r": 2,
-            "damp_es_f": 5, "damp_es_r": 5,
-            "damp_ef_f": 4, "damp_ef_r": 4,
-            "arb_f": 2, "arb_r": 2,
-            "camber_f": -1.2, "camber_r": -0.8,
-            "toe_f": 0.12, "toe_r": 0.08,
-            "lsd_init": 8, "lsd_acc": 16, "lsd_dec": 10,
-            "split_f": 50, "split_r": 50,
-            "aero_f": 0, "aero_r": 0,
-            "brake_force": 4, "brake_bal": 1,
-            "tcs": 3 if surface == "dirt" else 4, "abs": 2,
-        })
-    elif layout == "high_speed":
-        n["ride_f"], n["ride_r"] = 86, 90
-        n["spring_f"] += 1.10
-        n["spring_r"] += 0.95
-        n["nfr_f"], n["nfr_r"] = 2.50, 2.34
-        n["arb_f"], n["arb_r"] = 5, 4
-        n["damp_cs_f"], n["damp_cs_r"] = 6, 5
-        n["aero_f"], n["aero_r"] = (35, 90) if not race else (180, 260)
-        if profile.get("oval") or "route x" in name:
-            n["aero_f"], n["aero_r"] = 10, 40
-            n["camber_f"], n["camber_r"] = -2.8, -2.2
-    elif layout == "technical":
-        n["ride_f"], n["ride_r"] = 90, 96
-        n["spring_f"] -= 0.35
-        n["spring_r"] -= 0.40
-        n["nfr_f"], n["nfr_r"] = 2.22, 2.08
-        n["arb_f"], n["arb_r"] = 3, 2
-        n["damp_cf_f"], n["damp_cf_r"] = 2, 2
-        n["aero_f"], n["aero_r"] = (90, 155) if not race else (280, 420)
-    else:
-        n["aero_f"], n["aero_r"] = (72, 125) if not race else (220, 340)
-
-    if hills in ("hilly", "mountain") or "nordschleife" in name or "panorama" in name:
-        n["ride_f"] += 3
-        n["ride_r"] += 3
-        n["damp_cf_f"] = max(2, n["damp_cf_f"] - 1)
-
+    # Traction — Praiano : LSD bas, Accél. = confort sortie, Décél. = entrée
     if drivetrain == "FF":
-        n["arb_f"], n["arb_r"] = 2, 5
-        n["camber_f"] = -2.8
-        n["lsd_init"], n["lsd_acc"], n["lsd_dec"] = 10, 20, 10
-        n["brake_bal"] = 0
+        n.update(arb_f=2, arb_r=5, camber_f=2.6, toe_r=0.08, toe_f=0.15,
+                 lsd_ri=6, lsd_ra=16, lsd_rd=12, split_f=100, brake_bal=-1)
     elif drivetrain == "MR":
-        n["arb_r"] = 2
-        n["lsd_init"], n["lsd_acc"], n["lsd_dec"] = 10, 18, 12
-        n["toe_r"] = 0.10
-        n["brake_bal"] = 2
-    elif drivetrain == "4WD":
-        n["lsd_init"], n["lsd_acc"], n["lsd_dec"] = 14, 22, 16
-        n["split_f"], n["split_r"] = 38, 62
-        n["brake_bal"] = 1
+        if band not in ("sf", "proto"):
+            n.update(arb_f=max(n["arb_f"], 5), arb_r=min(n["arb_r"], 5),
+                     lsd_rd=max(n["lsd_rd"], 24))
+        if band == "sf":
+            n.update(split_f=0, lsd_fi=0, lsd_fa=0, lsd_fd=0)
     elif drivetrain == "RR":
-        n["lsd_init"], n["lsd_acc"], n["lsd_dec"] = 11, 22, 14
-        n["camber_r"] = -2.0
-        n["brake_bal"] = 2
+        n.update(camber_r=max(n["camber_r"], 1.8), lsd_rd=max(n["lsd_rd"], 22), toe_r=0.20)
+    elif drivetrain == "4WD":
+        if band in ("road", "gt4", "hyper", "gt"):
+            n.update(split_f=35, lsd_fi=5, lsd_fa=8, lsd_fd=8,
+                     lsd_ri=12, lsd_ra=28, lsd_rd=22)
+        if surface in ("dirt", "snow"):
+            n["split_f"] = 50
     else:  # FR
-        n["lsd_init"], n["lsd_acc"], n["lsd_dec"] = 12, 26, 15
-        n["brake_bal"] = 2
+        if band in ("road", "gt4", "hyper"):
+            n.update(lsd_fi=5, lsd_fa=5, lsd_fd=5)
 
-    if style == "drift":
-        n.update({
-            "camber_f": -0.8, "camber_r": -1.2,
-            "toe_f": 0.22, "toe_r": -0.10,
-            "lsd_init": 10, "lsd_acc": 48, "lsd_dec": 28,
-            "arb_f": 3, "arb_r": 1,
-            "tcs": 0, "abs": 1, "countersteer": 1,
-            "aero_f": 20, "aero_r": 40,
-        })
-    elif style == "chrono":
-        n["tcs"] = 0
-        n["abs"] = 1
-        n["damp_cs_f"] += 1
-        n["spring_f"] += 0.25
-    elif style == "stable":
-        n["tcs"] = 2
-        n["lsd_acc"] -= 4
-        n["lsd_dec"] += 3
-        n["toe_r"] += 0.04
-        n["arb_f"] += 1
+    # Surface
+    if surface in ("dirt", "snow"):
+        n.update(ride_f=n["ride_f"] + 28, ride_r=n["ride_r"] + 26,
+                 nf_f=max(1.80, n["nf_f"] - 0.70), nf_r=max(1.70, n["nf_r"] - 0.70),
+                 comp_f=22, comp_r=24, exp_f=32, exp_r=34,
+                 arb_f=2, arb_r=2, camber_f=1.2, camber_r=0.8,
+                 lsd_ra=14, lsd_rd=12, aero_f=0, aero_r=0,
+                 tcs=3 if surface == "dirt" else 4, abs=2, brake_force=4)
 
-    if tire["grip"] >= 7:
-        n["brake_force"] = 7
-    if weather in ("wet", "damp"):
-        n["tcs"] += 2
-        n["abs"] = max(n["abs"], 2)
-        n["aero_f"] += 10
-        n["aero_r"] += 15
+    # Layout — ne PAS couper l'appui des proto/SF (tes 919/SF23 gardent 1000–1600 au Nürburgring)
+    if layout == "high_speed" and surface == "tarmac" and band in ("road", "gt4", "hyper"):
+        n["aero_f"] = int(n["aero_f"] * 0.88)
+        n["aero_r"] = int(n["aero_r"] * 0.92)
+        n["vmax"] += 12
+        n["toe_r"] += 0.03
+    elif layout == "technical" and surface == "tarmac":
+        n["aero_f"] = int(n["aero_f"] * 1.06)
+        n["nf_f"] -= 0.06
+        n["comp_f"] -= 1
+        n["vmax"] -= 12
 
-    if not has_gt_auto or surface != "tarmac":
+    # Nürburgring / bosses
+    if bumpy and surface == "tarmac":
+        if band in ("sf", "proto"):
+            n["ride_f"] += 2
+            n["ride_r"] += 2
+            n["comp_f"] -= 1
+            n["comp_r"] -= 1
+            n["lsd_rd"] += 2
+        else:
+            n["ride_f"] += 4
+            n["ride_r"] += 5
+            n["comp_f"] -= 2
+            n["comp_r"] -= 2
+            n["exp_f"] -= 1
+            n["nf_f"] -= 0.10
+            n["nf_r"] -= 0.08
+            n["aero_r"] = int(n["aero_r"] * 1.05)
+            n["lsd_rd"] += 4
+            n["toe_r"] += 0.03
+
+    if profile.get("oval") or "route x" in name:
+        n["aero_f"] = min(n["aero_f"], 40) if band == "road" else int(n["aero_f"] * 0.4)
+        n["aero_r"] = min(n["aero_r"], 80) if band == "road" else int(n["aero_r"] * 0.45)
+        n["vmax"] += 40
+
+    if not has_gt_auto and band == "road":
         n["aero_f"] = 0
         n["aero_r"] = 0
 
-    # ── Style de pilotage ──────────────────────────────────────────────
+    # Style intention
+    if style == "drift":
+        n.update(camber_f=0.8, camber_r=1.2, toe_f=0.25, toe_r=-0.08,
+                 lsd_ri=8, lsd_ra=48, lsd_rd=28, tcs=0, arb_r=1,
+                 aero_f=min(n["aero_f"], 40), aero_r=min(n["aero_r"], 60))
+    elif style == "chrono":
+        n["tcs"] = 0
+        n["abs"] = 1
+        n["comp_f"] += 1
+        n["nf_f"] += 0.06
+    elif style == "stable":
+        n["tcs"] = 2
+        n["lsd_ra"] -= 3
+        n["lsd_rd"] += 4
+        n["toe_r"] += 0.05
+        n["arb_r"] += 1
+
+    if weather in ("wet", "damp"):
+        n["tcs"] += 2
+        n["abs"] = max(n["abs"], 2)
+        n["aero_f"] = int(n["aero_f"] * 1.08)
+        n["aero_r"] = int(n["aero_r"] * 1.10)
+
+    # Pilotage
     ctrl = pilot.get("controller") or "pad"
     level = pilot.get("level") or "intermediate"
     attack = pilot.get("attack") or "committed"
@@ -261,124 +293,172 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
 
     n["countersteer"] = 1 if ctrl == "pad" else 0
     if ctrl == "wheel":
-        n["lsd_init"] += 1
+        n["lsd_ri"] += 1
         n["toe_f"] -= 0.02
 
     if level == "beginner":
         n["tcs"] = max(n["tcs"], 3)
         n["abs"] = max(n["abs"], 2)
-        n["lsd_acc"] -= 4
-        n["lsd_dec"] += 4
+        n["lsd_ra"] -= 4
+        n["lsd_rd"] += 5
         n["arb_f"] += 1
-        n["asm"] = 0
     elif level == "expert":
-        n["tcs"] = 0 if style != "drift" else n["tcs"]
+        if style != "drift":
+            n["tcs"] = 0
         n["abs"] = 1
-        n["lsd_acc"] += 2
 
     if attack == "smooth":
-        n["damp_cs_f"] -= 1
+        n["comp_f"] -= 2
         n["arb_f"] -= 1
-        n["spring_f"] -= 0.30
+        n["nf_f"] -= 0.08
     elif attack == "aggressive":
-        n["damp_cs_f"] += 1
+        n["comp_f"] += 2
         n["arb_f"] += 1
-        n["lsd_dec"] += 3
-        n["spring_f"] += 0.35
+        n["lsd_rd"] += 3
+        n["nf_f"] += 0.08
 
     if braking == "conservative":
-        n["brake_force"] = max(4, n["brake_force"] - 1)
-        n["brake_bal"] -= 1
+        n["brake_force"] = 4
+        n["brake_bal"] = -3
         n["abs"] = max(n["abs"], 2)
     elif braking == "late":
-        n["brake_force"] = min(8, n["brake_force"] + 1)
-        n["brake_bal"] += 1
-        n["damp_cs_f"] += 1
-    else:  # trail
-        n["lsd_dec"] += 2
-        n["brake_bal"] += 0
+        n["brake_force"] = 6
+        n["brake_bal"] = -1
+        n["comp_f"] += 1
+    else:
+        n["lsd_rd"] += 2
+        n["brake_bal"] = -2
 
     if throttle == "early":
-        n["lsd_acc"] -= 3
+        n["lsd_ra"] -= 3
         n["tcs"] += 1
-        n["split_r"] += 4
+        n["split_f"] = min(50, n["split_f"] + 4)
     else:
-        n["lsd_acc"] += 1
+        n["lsd_ra"] += 1
 
     if rotation == "stable":
         n["toe_r"] += 0.06
         n["arb_r"] += 1
-        n["lsd_dec"] += 3
-        n["aero_r"] += 8
+        n["lsd_rd"] += 3
+        n["aero_r"] = int(n["aero_r"] * 1.06)
     elif rotation == "pointy":
         n["toe_f"] += 0.05
         n["toe_r"] -= 0.04
         n["arb_f"] -= 1
-        n["arb_r"] += 1
-        n["lsd_dec"] -= 3
-        n["ride_r"] += 2
+        n["ride_r"] += 3
+        n["lsd_rd"] -= 3
 
-    # ── Symptômes : deltas concrets ────────────────────────────────────
-    corrections = []
-    before = deepcopy(n)
+    # Symptômes — deltas dans l'échelle RÉELLE
+    SYMPTOM_DELTAS = {
+        "us_entry": {"lsd_rd": -6, "brake_bal": -1, "toe_f": 0.04, "aero_f": 8},
+        "us_mid": {"arb_f": -2, "arb_r": 1, "camber_f": 0.3, "ride_f": -2},
+        "us_exit": {"lsd_ra": -5, "split_f": -5, "aero_r": -10},
+        "os_entry": {"lsd_rd": 6, "lsd_ri": 3, "brake_bal": -1, "toe_r": 0.06, "aero_r": 12},
+        "os_mid": {"arb_r": -2, "arb_f": 1, "camber_r": 0.3, "nf_r": 0.08, "aero_r": 12},
+        "os_exit": {"lsd_ra": -6, "tcs": 1, "aero_r": 10},
+        "os_lift": {"exp_r": 2, "lsd_ri": 3, "arb_r": -1},
+        "brake_unstable": {"brake_bal": -1, "brake_force": -1, "abs": 1, "lsd_rd": 4},
+        "brake_weak": {"brake_force": 1, "abs": 0},
+        "brake_lock_f": {"brake_force": -1, "brake_bal": 1, "abs": 1},
+        "brake_dive": {"nf_f": 0.12, "comp_f": 2, "ride_f": 3},
+        "spin_exit": {"lsd_ra": 5, "lsd_ri": 2, "tcs": 1},
+        "spin_inside": {"lsd_ra": 6, "lsd_ri": 4, "arb_r": 1},
+        "launch_slow": {},
+        "bottom": {"ride_f": 5, "ride_r": 4, "comp_f": -2},
+        "kerb": {"comp_f": -3, "comp_r": -3, "arb_f": -1, "arb_r": -1},
+        "bounce": {"exp_f": 2, "exp_r": 3, "comp_f": 1},
+        "stiff": {"nf_f": -0.15, "nf_r": -0.12, "arb_f": -1, "comp_f": -2},
+        "nervous": {"toe_r": 0.08, "lsd_ri": 3, "aero_r": 10},
+        "no_rotate": {"toe_f": 0.06, "toe_r": -0.05, "ride_r": 4, "lsd_rd": -4, "arb_f": -1},
+        "squat": {"nf_r": 0.12, "comp_r": 2, "ride_r": 2, "aero_r": 8},
+        "hs_us": {"aero_f": 15, "arb_f": -1, "camber_f": 0.2},
+        "hs_os": {"aero_r": 18, "aero_f": -8, "toe_r": 0.05, "lsd_ra": -3},
+        "hs_wander": {"toe_r": 0.08, "toe_f": -0.03, "aero_f": 6, "aero_r": 10, "arb_f": 1},
+        "drag": {"aero_f": -20, "aero_r": -30},
+        "heat_inner": {"camber_f": -0.4, "camber_r": -0.3},
+        "heat_outer": {"camber_f": 0.4, "camber_r": 0.3},
+        "wear_front": {"brake_bal": 1, "brake_force": -1, "aero_f": -10, "aero_r": 8},
+        "wear_rear": {"lsd_ra": -4, "tcs": 1, "aero_r": 10},
+        "limiter_early": {},
+        "limiter_never": {},
+        "gear_gap": {},
+    }
+
     for sid in symptoms:
-        if sid not in SYMPTOM_DELTAS:
-            continue
-        spec = SYMPTOMS_BY_ID.get(sid, {"label": sid})
-        for key, delta in SYMPTOM_DELTAS[sid].items():
+        for key, delta in SYMPTOM_DELTAS.get(sid, {}).items():
             if key in n:
                 n[key] = n[key] + delta
-        corrections.append(sid)
 
     # Clamps GT7
-    n["ride_f"] = _clamp(_round(n["ride_f"]), 55, 145)
-    n["ride_r"] = _clamp(_round(n["ride_r"]), 55, 150)
-    n["spring_f"] = _clamp(_round(n["spring_f"], 2), 2.50, 18.00)
-    n["spring_r"] = _clamp(_round(n["spring_r"], 2), 2.50, 18.00)
-    n["nfr_f"] = _clamp(_round(n["nfr_f"], 2), 1.60, 3.20)
-    n["nfr_r"] = _clamp(_round(n["nfr_r"], 2), 1.50, 3.00)
-    for k in ("damp_cs_f", "damp_cs_r", "damp_cf_f", "damp_cf_r", "damp_es_f", "damp_es_r", "damp_ef_f", "damp_ef_r"):
-        n[k] = _clamp(_round(n[k]), 1, 10)
-    n["arb_f"] = _clamp(_round(n["arb_f"]), 1, 10)
-    n["arb_r"] = _clamp(_round(n["arb_r"]), 1, 10)
-    n["camber_f"] = _clamp(_round(n["camber_f"], 1), -6.0, 0.0)
-    n["camber_r"] = _clamp(_round(n["camber_r"], 1), -6.0, 0.0)
-    n["toe_f"] = _clamp(_round(n["toe_f"], 2), -0.40, 0.40)
-    n["toe_r"] = _clamp(_round(n["toe_r"], 2), -0.40, 0.40)
-    for k in ("lsd_init", "lsd_acc", "lsd_dec"):
-        n[k] = _clamp(_round(n[k]), 5, 60)
-    n["split_f"] = _clamp(_round(n["split_f"]), 0, 100)
-    n["split_r"] = 100 - n["split_f"]
-    n["aero_f"] = _clamp(_round(n["aero_f"]), 0, 500)
-    n["aero_r"] = _clamp(_round(n["aero_r"]), 0, 500)
-    n["brake_force"] = _clamp(_round(n["brake_force"]), 1, 10)
-    n["brake_bal"] = _clamp(_round(n["brake_bal"]), -5, 5)
-    n["abs"] = _clamp(_round(n["abs"]), 0, 5)
-    n["tcs"] = _clamp(_round(n["tcs"]), 0, 5)
-    n["asm"] = 0
+    n["ride_f"] = _i(n["ride_f"], 15, 160)
+    n["ride_r"] = _i(n["ride_r"], 15, 165)
+    if n["ride_r"] < n["ride_f"]:
+        n["ride_r"] = n["ride_f"] + 4  # rake : AR plus haut = rotation (Praiano)
+    n["arb_f"] = _i(n["arb_f"], 1, 10)
+    n["arb_r"] = _i(n["arb_r"], 1, 10)
+    n["comp_f"] = _i(n["comp_f"], 20, 40)
+    n["comp_r"] = _i(n["comp_r"], 20, 40)
+    n["exp_f"] = _i(n["exp_f"], 30, 50)
+    n["exp_r"] = _i(n["exp_r"], 30, 50)
+    # expansion toujours ≥ compression (tes feuilles + guides)
+    if n["exp_f"] < n["comp_f"] + 6:
+        n["exp_f"] = min(50, n["comp_f"] + 10)
+    if n["exp_r"] < n["comp_r"] + 6:
+        n["exp_r"] = min(50, n["comp_r"] + 10)
+    n["nf_f"] = _f(n["nf_f"], 1.20, 7.50, 2)
+    n["nf_r"] = _f(n["nf_r"], 1.20, 7.50, 2)
+    n["camber_f"] = _f(n["camber_f"], 0.0, 6.0, 1)
+    n["camber_r"] = _f(n["camber_r"], 0.0, 6.0, 1)
+    n["toe_f"] = _f(n["toe_f"], -0.40, 0.60, 2)
+    n["toe_r"] = _f(n["toe_r"], -0.50, 0.80, 2)
+    for k in ("lsd_fi", "lsd_fa", "lsd_fd", "lsd_ri", "lsd_ra", "lsd_rd"):
+        n[k] = _i(n[k], 0, 60)
+    n["split_f"] = _i(n["split_f"], 0, 100)
+    n["aero_f"] = _i(n["aero_f"], 0, 2000)
+    n["aero_r"] = _i(n["aero_r"], 0, 2000)
+    n["brake_force"] = _i(n["brake_force"], 1, 10)
+    n["brake_bal"] = _i(n["brake_bal"], -5, 5)
+    n["abs"] = _i(n["abs"], 0, 5)
+    n["tcs"] = _i(n["tcs"], 0, 5)
     n["countersteer"] = 1 if n["countersteer"] else 0
     n["ecu"] = 100 if not pp_limit else 92
-    n["ballast_kg"] = 0 if not pp_limit else 0
-    n["ballast_pos"] = 25 if drivetrain == "FF" else (20 if drivetrain == "MR" else 0)
-    if not pp_limit:
-        n["ballast_pos"] = 0
+    n["vmax"] = _i(n.get("vmax", 270), 120, 450)
 
-    gearing = build_gearing(track, profile, style, symptoms)
+    # Gearing : Vmax feuille prioritaire
+    g = build_gearing(track, profile, style, symptoms)
+    g = deepcopy(g)
+    g["max_speed"] = n["vmax"]
+    if bumpy:
+        g["max_speed"] = max(g["max_speed"], n["vmax"])
 
-    def toe_txt(v, axle):
-        # GT7: pincement positif = IN à l'arrière souvent ; on affiche IN/OUT clair
-        if axle == "f":
-            side = "OUT" if v >= 0 else "IN"
-            return f"{abs(v):.2f}° {side}"
+    def toe_f(v):
+        side = "OUT" if v >= 0 else "IN"
+        return f"{abs(v):.2f}° {side}"
+
+    def toe_r(v):
+        # Praiano : IN arrière (valeur positive). Négatif = OUT (rare, FF/4WD)
         side = "IN" if v >= 0 else "OUT"
         return f"{abs(v):.2f}° {side}"
 
-    def bal_txt(v):
+    def bal(v):
         if v == 0:
             return "0"
-        if v > 0:
-            return f"{v} vers l'AR"
-        return f"{abs(v)} vers l'AV"
+        if v < 0:
+            return f"{v}  (vers l'avant)"
+        return f"+{v}  (vers l'arrière)"
+
+    show_front_lsd = drivetrain in ("4WD",) or band in ("proto", "sf", "gt")
+    lsd_rows = [
+        {"label": "Couple initial", "front": str(n["lsd_fi"]), "rear": str(n["lsd_ri"])},
+        {"label": "Sensibilité accélération", "front": str(n["lsd_fa"]), "rear": str(n["lsd_ra"])},
+        {"label": "Sensibilité freinage", "front": str(n["lsd_fd"]), "rear": str(n["lsd_rd"])},
+    ]
+    if drivetrain == "4WD" or band == "sf":
+        lsd_rows.append({
+            "label": "Répartition centrale",
+            "front": f"{n['split_f']}",
+            "rear": f"{100 - n['split_f']}",
+        })
 
     blocks = [
         {
@@ -391,15 +471,12 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
             "kind": "fr",
             "rows": [
                 {"label": "Hauteur de caisse", "front": f"{n['ride_f']} mm", "rear": f"{n['ride_r']} mm"},
-                {"label": "Constante de ressort", "front": f"{n['spring_f']:.2f}", "rear": f"{n['spring_r']:.2f}"},
-                {"label": "Fréquence naturelle", "front": f"{n['nfr_f']:.2f} Hz", "rear": f"{n['nfr_r']:.2f} Hz"},
-                {"label": "Comp. lente", "front": str(n["damp_cs_f"]), "rear": str(n["damp_cs_r"])},
-                {"label": "Comp. rapide", "front": str(n["damp_cf_f"]), "rear": str(n["damp_cf_r"])},
-                {"label": "Détente lente", "front": str(n["damp_es_f"]), "rear": str(n["damp_es_r"])},
-                {"label": "Détente rapide", "front": str(n["damp_ef_f"]), "rear": str(n["damp_ef_r"])},
                 {"label": "Barre anti-roulis", "front": str(n["arb_f"]), "rear": str(n["arb_r"])},
-                {"label": "Carrossage", "front": f"{n['camber_f']:.1f}°", "rear": f"{n['camber_r']:.1f}°"},
-                {"label": "Pincement", "front": toe_txt(n["toe_f"], "f"), "rear": toe_txt(n["toe_r"], "r")},
+                {"label": "Amort. compression", "front": f"{n['comp_f']} %", "rear": f"{n['comp_r']} %"},
+                {"label": "Amort. expansion", "front": f"{n['exp_f']} %", "rear": f"{n['exp_r']} %"},
+                {"label": "Fréquence naturelle", "front": f"{n['nf_f']:.2f} Hz", "rear": f"{n['nf_r']:.2f} Hz"},
+                {"label": "Carrossage (négatif)", "front": f"{n['camber_f']:.1f}°", "rear": f"{n['camber_r']:.1f}°"},
+                {"label": "Pincement", "front": toe_f(n["toe_f"]), "rear": toe_r(n["toe_r"])},
             ],
         },
         {
@@ -411,33 +488,26 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
         },
         {
             "title": "DIFFÉRENTIEL",
-            "kind": "single",
-            "rows": [
-                {"label": "Couple initial", "value": str(n["lsd_init"])},
-                {"label": "Sensibilité accélération", "value": str(n["lsd_acc"])},
-                {"label": "Sensibilité freinage", "value": str(n["lsd_dec"])},
-            ] + (
-                [{"label": "Répartition centrale", "value": f"{n['split_f']} / {n['split_r']}"}]
-                if drivetrain == "4WD" else []
-            ),
+            "kind": "fr" if show_front_lsd else "single",
+            "rows": lsd_rows if show_front_lsd else [
+                {"label": "Couple initial", "value": str(n["lsd_ri"])},
+                {"label": "Sensibilité accélération", "value": str(n["lsd_ra"])},
+                {"label": "Sensibilité freinage", "value": str(n["lsd_rd"])},
+            ],
         },
         {
             "title": "TRANSMISSION",
             "kind": "single",
             "rows": [
-                {"label": "Étalonnage auto · Vmax", "value": f"{gearing['max_speed']} km/h"},
-                {"label": "Pont", "value": f"{gearing['final_drive']:.3f}"},
-            ] + [
-                {"label": f"{r['gear']}e", "value": f"{r['ratio']:.3f}"}
-                for r in gearing["ratios"]
-            ],
+                {"label": "Étalonnage auto · Vmax", "value": f"{g['max_speed']} km/h"},
+                {"label": "Pont", "value": f"{g['final_drive']:.3f}"},
+            ] + [{"label": f"{r['gear']}e", "value": f"{r['ratio']:.3f}"} for r in g["ratios"]],
         },
         {
             "title": "FREINS",
             "kind": "single",
             "rows": [
-                {"label": "Force de freinage", "value": str(n["brake_force"])},
-                {"label": "Répartition", "value": bal_txt(n["brake_bal"])},
+                {"label": "Équilibre avant/arrière", "value": bal(n["brake_bal"])},
             ],
         },
         {
@@ -461,30 +531,31 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
         },
     ]
 
-    diag_rows = []
+    diag = []
     for sid in symptoms:
         spec = SYMPTOMS_BY_ID.get(sid)
-        if not spec:
-            continue
-        changed = []
-        for key, delta in SYMPTOM_DELTAS.get(sid, {}).items():
-            if key in n and key in before:
-                changed.append(f"{key} {before[key]} → {n[key]}")
-        diag_rows.append({
-            "symptom": spec["label"],
-            "detail": spec.get("detail") or spec.get("hint") or "",
-            "applied": True,
-        })
+        if spec:
+            diag.append({"symptom": spec["label"], "detail": spec.get("detail") or spec.get("hint") or ""})
+
+    method = (
+        "Logique Praiano : d'abord les forts (hauteur, fréquence, carrossage, appui), "
+        "puis LSD / pincement / freins, enfin amortos et barres. "
+        "Rake (AR plus haut). Compression < expansion. LSD initial BAS. "
+        "Pincement AV OUT, AR IN. Unités = écran GT7 (amortos en %, Hz, appui selon la caisse)."
+    )
+    if bumpy:
+        method += " Nürburgring / bosses : +4–5 mm, compression −2, décél. LSD +, un peu plus d'appui AR."
 
     return {
         "numbers": n,
         "blocks": blocks,
-        "gearing": gearing,
-        "disclaimer": "Si un cran est hors plage sur cette auto, prends la valeur autorisée la plus proche. Les mm/kgf varient selon le châssis.",
+        "gearing": g,
+        "band": band,
+        "disclaimer": method,
         "diagnostics": {
             "ids": symptoms,
             "labels": [SYMPTOMS_BY_ID[s]["label"] for s in symptoms if s in SYMPTOMS_BY_ID],
-            "items": diag_rows,
+            "items": diag,
         },
         "pilot": {
             "controller": ctrl, "level": level, "attack": attack,

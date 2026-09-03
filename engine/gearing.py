@@ -19,10 +19,13 @@ def build_gearing(track: dict, profile: dict, style: str, symptoms: list[str] | 
 
     gears = 6
     first, last, final = 3.850, 0.920, 3.950
+    nurb = any(k in name for k in ("nordschleife", "nurburgring", "nürburgring", "green hell"))
     if "route x" in name:
         gears, vmax, first, last, final = 8, max(vmax, 430), 3.150, 0.720, 2.850
     elif profile.get("oval"):
         gears, vmax, first, last, final = 6, max(vmax, 320), 3.250, 0.780, 3.350
+    elif nurb:
+        gears, vmax, first, last, final = 7, 310, 3.200, 0.780, 3.250
     elif layout == "high_speed" or profile.get("endurance"):
         gears, vmax, first, last, final = 7, vmax, 3.450, 0.820, 3.550
     elif layout == "technical":
