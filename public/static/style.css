@@ -113,6 +113,8 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 }
 .chips button.on { color: #0b0f18; background: var(--gold); border-color: var(--gold); font-weight: 700; }
 .chk { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); font-weight: 500; }
+#swapBox { margin: 12px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: #0c111a; }
+#swapBox .hint { margin: 8px 0 0; }
 .actions { display: grid; gap: 8px; margin-top: 18px; }
 .btn {
   border: 0; border-radius: 12px; padding: 12px 14px; font: inherit; font-weight: 700;

@@ -139,18 +139,50 @@ function bindCombo(input, list, kind) {
   });
 }
 
-function pick(kind, row) {
+async function pick(kind, row) {
   if (kind === "car") {
+    if (row.has_swap && !(row.swaps && row.swaps.length)) {
+      try {
+        row = await (await fetch(`/api/cars/${row.id}`)).json();
+      } catch (_) { /* keep the thin row */ }
+    }
     state.car = row;
     $("carPicked").textContent = `${row.full_name}  ·  ${row.category}  ·  ${row.drivetrain}${row.has_swap ? "  ·  swap dispo" : ""}`;
     $("carQuery").value = row.full_name;
     $("carList").hidden = true;
+    fillSwapSelect(row);
   } else {
     state.track = row;
     $("trackPicked").textContent = `${row.name}  ·  ${(row.profile?.labels || []).join(" · ")}`;
     $("trackQuery").value = row.name;
     $("trackList").hidden = true;
   }
+}
+
+function fillSwapSelect(car) {
+  const box = $("swapBox");
+  const sel = $("swapSelect");
+  if (!box || !sel) return;
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "Moteur d'origine (pas de swap)";
+  sel.appendChild(none);
+  const swaps = car?.swaps || [];
+  if (!swaps.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  swaps.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.engine;
+    const cr = s.price ? money(s.price) : "prix variable";
+    o.textContent = `${s.engine} — ${s.donor} · ${cr}`;
+    sel.appendChild(o);
+  });
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
 }
 
 function payload() {
@@ -167,7 +199,8 @@ function payload() {
     drivetrains: selectedChips($("dtChips")),
     has_gt_auto: $("gtAuto").checked,
     allow_wide: $("allowWide").checked,
-    allow_swap: $("allowSwap").checked,
+    allow_swap: Boolean($("swapSelect") && $("swapSelect").value),
+    swap_engine: ($("swapSelect") && $("swapSelect").value) || "",
     has_ultimate: $("ultimate").checked,
     drivetrain_override: $("dtOverride").value || null,
     symptoms: selectedChips($("symptomGroups")),
@@ -270,7 +303,7 @@ async function suggest() {
     return;
   }
   const body = payload();
-  body.prefer_swap = $("allowSwap").checked;
+  body.prefer_swap = Boolean($("swapSelect") && $("swapSelect").options.length > 1);
   const res = await fetch("/api/suggest", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -290,8 +323,8 @@ async function suggest() {
   data.cars.forEach((c) => {
     const b = document.createElement("button");
     b.innerHTML = `<strong>${c.full_name}</strong><div class="meta">${c.category} · ${c.drivetrain} · ${c.car_type}${c.has_swap ? " · swap" : ""}</div>`;
-    b.addEventListener("click", () => {
-      pick("car", c);
+    b.addEventListener("click", async () => {
+      await pick("car", c);
       generate();
     });
     root.appendChild(b);
@@ -343,8 +376,8 @@ function render(d) {
         </div>
       </div>
       <div class="cost">
-        <span class="meta">Budget pièces conseillées</span>
-        <b>${money(d.cost_min)} – ${money(d.cost_max)}</b>
+        <span class="meta">${d.price_note || "Budget pièces conseillées"}</span>
+        <b>${d.cost_typical ? money(d.cost_typical) : `${money(d.cost_min)} – ${money(d.cost_max)}`}</b>
         <div class="toolbar" style="margin-top:8px">
           <button class="btn ghost" id="copyBtn">Copier</button>
           <button class="btn ghost" id="printBtn">Imprimer</button>
@@ -398,16 +431,18 @@ function render(d) {
 }
 
 function renderSwaps(d) {
-  const pick = (d.gt_auto || []).find((x) => x.swap_all);
-  if (!pick) {
-    if (d.car.has_swap) {
-      return `<div class="group"><h3>Swaps connus</h3><ul>${d.car.swaps.map((s) => `<li><strong>${s.engine}</strong> — ${s.donor}</li>`).join("")}</ul></div>`;
-    }
-    return "";
-  }
-  return `<div class="group"><h3>Swaps disponibles (${pick.swap_all.length})</h3>
-    <table><thead><tr><th>Moteur</th><th>Voiture donneuse</th></tr></thead>
-    <tbody>${pick.swap_all.map((s, i) => `<tr><td>${i === 0 ? '<span class="badge power">conseillé</span>' : ""}${s.engine}</td><td>${s.donor}</td></tr>`).join("")}</tbody></table>
+  const item = (d.gt_auto || []).find((x) => x.swap_all);
+  const chosen = item?.swap_pick?.engine;
+  const list = item?.swap_all || d.car.swaps || [];
+  if (!list.length) return "";
+  return `<div class="group"><h3>Swaps disponibles (${list.length})</h3>
+    <table><thead><tr><th>Moteur</th><th>Donneuse</th><th>Prix GT Auto</th></tr></thead>
+    <tbody>${list.map((s) => `<tr>
+      <td>${s.engine === chosen ? '<span class="badge power">choisi</span>' : ""}${s.engine}</td>
+      <td>${s.donor}</td>
+      <td class="price">${s.price ? money(s.price) : "variable"}</td>
+    </tr>`).join("")}</tbody></table>
+    ${chosen ? "" : `<p class="meta">Choisis un moteur dans Options atelier pour l'ajouter au plan et au budget.</p>`}
   </div>`;
 }
 
@@ -593,10 +628,10 @@ function renderCarGrid(g) {
       </div>
     </button>`).join("") || `<p class="meta">Aucun modèle.</p>`;
   bindThumbs($("carGrid"));
-  $("carGrid").querySelectorAll(".car-card").forEach((b) => b.addEventListener("click", () => {
+  $("carGrid").querySelectorAll(".car-card").forEach((b) => b.addEventListener("click", async () => {
     const car = g.cars.find((c) => c.id === Number(b.dataset.id));
     if (car) {
-      pick("car", car);
+      await pick("car", car);
       $("garageModal").hidden = true;
     }
   }));

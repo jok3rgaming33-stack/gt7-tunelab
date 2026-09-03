@@ -7,6 +7,8 @@ import re
 from functools import cached_property
 from pathlib import Path
 
+from .catalog import swap_cost
+
 DATA = Path(__file__).resolve().parent.parent / "data"
 
 HYPERCAR_KEYS = (
@@ -598,6 +600,7 @@ class Database:
                 "engine": engine,
                 "donor_id": donor,
                 "donor": names.get(donor, f"#{donor}"),
+                "price": swap_cost(engine),
             })
         return out
 
@@ -703,6 +706,7 @@ class Database:
             "category": c["category"],
             "drivetrain": c["drivetrain"],
             "has_swap": c["has_swap"],
+            "swaps": c["swaps"],
             "thumb": c.get("thumb"),
             "thumb_alt": c.get("thumb_alt"),
             "image": c.get("image"),

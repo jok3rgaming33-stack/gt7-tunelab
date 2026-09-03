@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=171-swap" />
 </head>
 <body>
   <div class="bg"></div>
@@ -91,7 +91,13 @@
         <summary>Options atelier</summary>
         <label class="chk"><input id="gtAuto" type="checkbox" checked /> GT Auto débloqué</label>
         <label class="chk"><input id="allowWide" type="checkbox" checked /> Autoriser kit large + jantes</label>
-        <label class="chk"><input id="allowSwap" type="checkbox" checked /> Autoriser swap moteur (rang 50)</label>
+        <div id="swapBox" hidden>
+          <label>Swap moteur <span class="val" id="swapLock">rang 50</span></label>
+          <select id="swapSelect">
+            <option value="">Moteur d'origine (pas de swap)</option>
+          </select>
+          <p class="hint" id="swapHint">Uniquement les voitures qui ont un échange moteur en GT Auto. Prix du moteur, pas du donneur.</p>
+        </div>
         <label class="chk"><input id="ultimate" type="checkbox" /> J'ai des pièces Ultimate (roulette 3★/4★)</label>
         <label>Forcer la traction (si la détection se trompe)</label>
         <select id="dtOverride"><option value="">Auto</option></select>
@@ -101,7 +107,7 @@
         <button class="btn primary" id="go">Générer le plan</button>
         <button class="btn ghost" id="suggest">Proposer une voiture</button>
       </div>
-      <p class="hint">Les prix sont des fourchettes GT7 (varient selon l'auto). Les Gr. ont souvent des pièces déjà montées ou grisées.</p>
+      <p class="hint">Les prix sont calés sur le type de voiture (une Gr.3 n'est pas une supercar de série). Les Gr. ont souvent les pièces déjà montées — n'achète que ce que le menu affiche.</p>
     </aside>
 
     <section class="panel results" id="results">
@@ -150,6 +156,6 @@
     PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
   </footer>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=171-swap"></script>
 </body>
 </html>

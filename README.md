@@ -37,13 +37,13 @@ npx vercel --prod
    - catégories (Road, Gr.1–4, Gr.B, Super Formula, Kart, N100–N1000)
    - type (Road / Racing / Hypercar / VGT / préparateur)
    - traction (FF, FR, MR, RR, 4WD)
-5. Options : GT Auto, kit large, swap, pièces Ultimate (roulette).
+5. Options : GT Auto, kit large, **swap moteur** (uniquement si la voiture est éligible), pièces Ultimate (roulette).
 6. **Générer le plan** — ou **Proposer une voiture** si tu n’as pas encore choisi.
 
 ## Ce que tu reçois
 
-- Liste d’achats par étage d’atelier, avec fourchette de crédits et le *pourquoi*
-- GT Auto : kit large, jantes, aéro (avant / diffuseur / aileron), swap classé
+- Liste d’achats par étage d’atelier, avec **prix indicatif calé sur le type de voiture** (une Gr.3 n’est pas tarifée comme une supercar de série) et le *pourquoi*
+- GT Auto : kit large, jantes, aéro, **swap choisi** (prix GT Auto du moteur)
 - Feuille de réglages : hauteur, ressorts, ARB, amortos, carrossage, LSD, aéro, boîte, ECU/lest, aides
 - Plan de session (ordre de montage, PP, T° pneus)
 - Copie presse-papiers / impression

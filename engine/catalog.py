@@ -340,9 +340,9 @@ PARTS = [
      "requires": [], "replaces": [], "tags": ["aero", "tires", "width"],
      "note": "Élargit les voies. Avec de nouvelles jantes, les pneus asphalte s'élargissent (pas les Dirt)."},
     {"id": "engine_swap", "name_fr": "Échange moteur (swap)", "shop": "gtauto", "tier": "gtauto",
-     "group": "gtauto", "price_min": 0, "price_max": 0, "permanent": False,
+     "group": "gtauto", "price_min": 109000, "price_max": 775000, "permanent": False,
      "requires": [], "replaces": [], "tags": ["swap"], "level_override": 50,
-     "note": "Rang collectionneur 50. Change puissance, poids, réservoir. Liste selon la voiture."},
+     "note": "Rang 50. Prix du moteur en GT Auto (souvent 109 k–775 k Cr, exceptions type F1 GTR à 10,1 M)."},
     {"id": "wheels", "name_fr": "Jantes (+ largeur / +1 taille)", "shop": "gtauto", "tier": "gtauto",
      "group": "gtauto", "price_min": 15000, "price_max": 80000, "permanent": False,
      "requires": [], "replaces": [], "tags": ["tires", "width"],
@@ -439,3 +439,133 @@ def part_unlocked(part, collector_level, has_ultimate=False):
 
 def get_part(pid):
     return deepcopy(PARTS_BY_ID[pid])
+
+
+def _round_cr(n):
+    """Arrondi façon boutique GT7."""
+    n = int(max(0, round(n)))
+    if n == 0:
+        return 0
+    if n < 2000:
+        return int(round(n / 100.0) * 100)
+    if n < 20000:
+        return int(round(n / 500.0) * 500)
+    if n < 100000:
+        return int(round(n / 1000.0) * 1000)
+    if n < 1000000:
+        return int(round(n / 5000.0) * 5000)
+    return int(round(n / 10000.0) * 10000)
+
+
+def car_price_factors(car):
+    """Coeff. appliqués à la fourchette wiki (voitures de série).
+
+    Les Gr. / proto ont des pneus et kits boutique à quelques milliers de Cr
+    (ex. Gr.3 : CH ~1 300, SS ~6 000, turbo ~13 500) — ~1–2 % du wiki road.
+    """
+    cat = car.get("category") or "Road"
+    typ = car.get("car_type") or "Road Car"
+    if cat == "Kart":
+        return 0.008, 0.012
+    if cat in ("Super Formula", "Gr.1"):
+        return 0.010, 0.018
+    if cat in ("Gr.2", "Gr.3"):
+        # Calé sur captures boutique Gr.3 (SS 6 000 / turbo 13 500).
+        return 0.015, 0.022
+    if cat in ("Gr.4", "Gr.B"):
+        return 0.035, 0.055
+    if typ == "Racing Car":
+        return 0.020, 0.035
+    if typ in ("Hypercar", "Vision Gran Turismo"):
+        return 0.75, 1.00
+    if typ == "Professionally-Tuned":
+        return 0.40, 0.65
+    # Road : bas de fourchette wiki (compact/sport), pas le max supercar.
+    return 0.12, 0.28
+
+
+def price_for(part, car):
+    """Prix indicatif de la pièce pour CETTE voiture (min, max, typical)."""
+    lo = int(part.get("price_min") or 0)
+    hi = int(part.get("price_max") or lo)
+    if part.get("shop") == "roulette" or (lo == 0 and hi == 0):
+        return 0, 0, 0
+    flo, fhi = car_price_factors(car)
+    a = _round_cr(lo * flo)
+    b = _round_cr(hi * fhi)
+    if b < a:
+        a, b = b, a
+    if a <= 0 and lo > 0:
+        a = _round_cr(max(500, lo * flo))
+        b = max(a, b)
+    # Gr. : le bas de fourchette colle aux captures boutique (CH 1 300, SS 6 000).
+    if car.get("is_race") or (car.get("category") or "").startswith("Gr."):
+        typical = a
+    else:
+        typical = _round_cr((a + b) / 2) if a != b else a
+    return a, b, typical
+
+
+# Prix d'achat GT Auto connus (moteur → Cr). Plus le motif est long, plus il gagne.
+# Sources : notes officielles 1.71, Traxion 1.67/1.69, autoevolution.
+_SWAP_COSTS = [
+    ("s70/3-f1gtr", 10100000),
+    ("s70/3", 10100000),
+    ("v12-xjr-9", 1600000),
+    ("8.0-wr16", 1500000),
+    ("rs4", 1100000),
+    ("m158-amg-huayra", 775000),
+    ("huayra", 775000),
+    ("hr-414e", 500000),
+    ("3uz-fe", 500000),
+    ("f140", 500000),
+    ("r26b", 500000),
+    ("vrh35", 500000),
+    ("1lr-gue", 500000),
+    ("mdya", 500000),
+    ("demon", 400000),
+    ("l539", 350000),
+    ("m159-amg-gt3", 340000),
+    ("gti-vgt", 325000),
+    ("v8-suzuki", 325000),
+    ("l4-focus-gr.b", 325000),
+    ("evo-final", 325000),
+    ("windsor", 250000),
+    ("dkh-911", 250000),
+    ("k24a", 250000),
+    ("ls7", 250000),
+    ("ls9", 250000),
+    ("lt5", 250000),
+    ("lt4", 250000),
+    ("lt1", 250000),
+    ("hellcat", 250000),
+    ("2jz", 250000),
+    ("vr38", 250000),
+    ("coyote", 250000),
+    ("voodoo", 250000),
+    ("p65b44", 250000),
+    ("byh-r8", 250000),
+    ("m97", 250000),
+    ("k20c1", 175000),
+    ("13b-rew", 175000),
+    ("sr20", 175000),
+    ("3s-gte", 175000),
+    ("ej20", 175000),
+    ("690t", 210000),
+    ("b18c", 137500),
+    ("r06a", 109000),
+    ("k14c", 109000),
+]
+
+
+def swap_cost(engine_name: str) -> int:
+    """Crédit GT Auto pour un moteur. Défaut : 325 000 (cas le plus courant)."""
+    key = (engine_name or "").lower()
+    best = None
+    best_len = -1
+    for needle, cr in _SWAP_COSTS:
+        if needle in key and len(needle) > best_len:
+            best = cr
+            best_len = len(needle)
+    return best if best is not None else 325000
+
