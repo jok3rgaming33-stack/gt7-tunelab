@@ -5,8 +5,11 @@ const state = {
   meta: null,
   last: null,
   garage: null,
+  circuits: null,
   regionId: null,
   makerId: null,
+  trackRegionId: null,
+  circuitId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -38,6 +41,13 @@ async function loadMeta() {
     $("footNote").innerHTML = `${meta.coverage.cars_note} ${meta.coverage.swaps_note} Miniatures : gtplus.app. Non affilié à PD / SIE.`;
   }
   fillSymptoms(meta.symptoms || []);
+  fillPiloting(meta.piloting || []);
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    document.querySelectorAll(".form-panel details.regs").forEach((d) => {
+      const t = (d.querySelector("summary")?.textContent || "");
+      d.open = t.includes("Style de pilotage");
+    });
+  }
   fillSelect($("weather"), meta.weather, "id", "label", "dry");
   const tires = $("tires");
   meta.tires.forEach((t) => {
@@ -161,20 +171,71 @@ function payload() {
     has_ultimate: $("ultimate").checked,
     drivetrain_override: $("dtOverride").value || null,
     symptoms: selectedChips($("symptomGroups")),
+    pilot: readPilot(),
   };
+}
+
+function fillPiloting(groups) {
+  const root = $("pilotFields");
+  if (!root) return;
+  root.className = "pilot-grid";
+  root.innerHTML = groups.map((g) => `
+    <label>${g.label}
+      <select data-pilot="${g.id}">
+        ${g.options.map((o) => `<option value="${o.id}" ${o.id === g.default ? "selected" : ""}>${o.label}</option>`).join("")}
+      </select>
+    </label>`).join("");
+}
+
+function readPilot() {
+  const out = {};
+  document.querySelectorAll("[data-pilot]").forEach((el) => {
+    out[el.dataset.pilot] = el.value;
+  });
+  return out;
 }
 
 function fillSymptoms(groups) {
   const root = $("symptomGroups");
+  const pop = $("symPop");
   if (!root) return;
+  const touch = window.matchMedia("(hover: none)").matches;
   root.innerHTML = groups.map((g) => `
     <div class="sym-group">
       <h4>${g.label}</h4>
       <div class="chips sym">${g.items.map((s) =>
-        `<button type="button" data-id="${s.id}" title="${s.hint || ""}">${s.label}</button>`
+        `<button type="button" data-id="${s.id}" data-detail="${(s.detail || s.hint || "").replace(/"/g, "&quot;")}">${s.label}</button>`
       ).join("")}</div>
     </div>`).join("");
-  root.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => b.classList.toggle("on")));
+  const show = (btn) => {
+    pop.hidden = false;
+    pop.innerHTML = `<b>${btn.textContent}</b><p>${btn.dataset.detail || ""}</p>`;
+    const r = btn.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - 28);
+    pop.style.left = left + "px";
+    pop.style.top = Math.min(r.bottom + 8, window.innerHeight - 120) + "px";
+  };
+  const hide = () => { pop.hidden = true; };
+  root.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      b.classList.toggle("on");
+      if (touch) {
+        e.stopPropagation();
+        show(b);
+      }
+    });
+    if (!touch) {
+      b.addEventListener("mouseenter", () => show(b));
+      b.addEventListener("mouseleave", hide);
+      b.addEventListener("focus", () => show(b));
+      b.addEventListener("blur", hide);
+    }
+  });
+  if (touch) {
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#symptomGroups") && !e.target.closest("#symPop")) hide();
+    });
+  }
 }
 
 async function generate() {
@@ -193,6 +254,9 @@ async function generate() {
     if (!res.ok) throw new Error(data.error || "Erreur");
     state.last = data;
     render(data);
+    if (window.matchMedia("(max-width: 980px)").matches) {
+      $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   } catch (err) {
     alert(err.message);
   } finally {
@@ -292,39 +356,23 @@ function render(d) {
       ${(d.notes || []).slice(0, 4).map((n) => `<div class="note">${n}</div>`).join("")}
     </div>
     <div class="tabs">
-      <button class="on" data-tab="shop">Liste d'achats</button>
+      <button class="on" data-tab="setup">Réglages</button>
+      <button data-tab="shop">Liste d'achats</button>
       <button data-tab="auto">GT Auto</button>
-      <button data-tab="setup">Réglages</button>
       <button data-tab="plan">Plan de session</button>
       <button data-tab="cat">Catalogue atelier</button>
     </div>
-    <div class="tabpane" id="tab-shop">
+    <div class="tabpane" id="tab-shop" hidden>
       ${shopGroups.map((g) => `<div class="group"><h3>${tierLabel(g.tier)}</h3>${partTable(g.items)}</div>`).join("") || "<p>Rien à acheter ? Étrange.</p>"}
     </div>
     <div class="tabpane" id="tab-auto" hidden>
       ${d.gt_auto.length ? autoGroups.map((g) => `<div class="group"><h3>GT Auto</h3>${partTable(g.items)}</div>`).join("") : "<p>GT Auto ignoré ou rien de pertinent.</p>"}
       ${renderSwaps(d)}
     </div>
-    <div class="tabpane" id="tab-setup" hidden>
-      <div class="setup-grid">
-        ${card("Pneus", s.tires)}
-        ${card("Aéro", `<p>Avant : ${s.aero.front}<br>Arrière : ${s.aero.rear}</p><p>${s.aero.note}</p>`)}
-        ${card("Hauteur", `<p>AV ${s.ride.front}<br>AR ${s.ride.rear}</p><p>${s.ride.note}</p>`)}
-        ${card("Ressorts", `<p>AV ${s.springs.front}<br>AR ${s.springs.rear}</p>`)}
-        ${card("Fréquence naturelle", `<p>AV ${s.nfr.front}<br>AR ${s.nfr.rear}</p><p>${s.nfr.note}</p>`)}
-        ${card("Barres anti-roulis", `<p>AV ${s.arbs.front}<br>AR ${s.arbs.rear}</p>`)}
-        ${card("Amortisseurs", `<p>Comp. rapide ${s.dampers.comp_fast}<br>Comp. lente ${s.dampers.comp_slow}<br>Dét. rapide ${s.dampers.ext_fast}<br>Dét. lente ${s.dampers.ext_slow}</p>`)}
-        ${card("Carrossage", `<p>AV ${s.camber.front}<br>AR ${s.camber.rear}</p><p>${s.camber.note}</p>`)}
-        ${card("Pincement", `<p>AV ${s.toe.front}<br>AR ${s.toe.rear}</p>`)}
-        ${card("LSD", `<p>Init ${s.lsd.initial}<br>Accel ${s.lsd.accel}<br>Décel ${s.lsd.decel}</p><p>${s.lsd.note}</p>`)}
-        ${card("Freins", `<p>Force ${s.brakes_force}<br>Répartition ${s.brake_balance}<br>ABS ${s.abs}</p>`)}
-        ${card("Aides", `<p>TCS ${s.tcs}<br>ASM ${s.asm}<br>Contre-braquage auto ${s.countersteer}</p>`)}
-        ${card("Boîte / pont", `<p>${s.transmission}</p><p>${s.final_drive}</p>`, true)}
-        ${gearingCard(s.gearing)}
-        ${diagCard(s.diagnostics)}
-        ${card("PP / ECU / lest", `<p>ECU : ${s.ecu}</p><p>Lest : ${s.ballast}</p><p>Position : ${s.ballast_pos}</p>`, true)}
-        ${card("Pilotage", s.controller, true)}
-      </div>
+    <div class="tabpane" id="tab-setup">
+      ${renderSheet(s)}
+      ${diagCard(s.diagnostics)}
+      ${card("Pilotage", s.controller, true)}
     </div>
     <div class="tabpane" id="tab-plan" hidden>
       <div class="card wide"><ol>${s.session_plan.map((x) => `<li>${x.replace(/^\d+\.\s*/, "")}</li>`).join("")}</ol></div>
@@ -368,26 +416,38 @@ function card(title, body, wide = false) {
   return `<div class="card${wide ? " wide" : ""}"><h4>${title}</h4>${inner}</div>`;
 }
 
-function gearingCard(g) {
-  if (!g) return "";
-  const rows = (g.ratios || []).map((r) => `<tr><td>${r.gear}${r.gear === 1 ? "re" : "e"}</td><td>${Number(r.ratio).toFixed(3)}</td></tr>`).join("");
-  return `<div class="card wide"><h4>Étalonnage de boîte</h4>
-    <p>${g.note || ""}</p>
-    <table class="gear-table">
-      <tr><td>Vmax auto</td><td><strong>${g.max_speed} km/h</strong></td></tr>
-      <tr><td>Rapports</td><td>${g.gears} · ${g.spread}</td></tr>
-      <tr><td>Pont</td><td><strong>${Number(g.final_drive).toFixed(3)}</strong></td></tr>
-      ${rows}
-    </table>
-    <ul>${(g.howto || []).map((h) => `<li>${h}</li>`).join("")}</ul>
+function renderSheet(s) {
+  const sheet = s.sheet;
+  if (!sheet || !sheet.blocks) return `<p>Feuille indisponible.</p>`;
+  const blocks = sheet.blocks.map((b) => {
+    if (b.kind === "fr") {
+      const rows = b.rows.map((r) =>
+        `<div class="gt7-row"><span class="lab">${r.label}</span><span class="val">${r.front}</span><span class="val">${r.rear}</span></div>`
+      ).join("");
+      return `<div class="gt7-block"><h4>${b.title}</h4>
+        <div class="gt7-cols"><span></span><span>Avant</span><span>Arrière</span></div>${rows}</div>`;
+    }
+    const rows = b.rows.map((r) =>
+      `<div class="gt7-row single"><span class="lab">${r.label}</span><span class="val">${r.value}</span></div>`
+    ).join("");
+    return `<div class="gt7-block"><h4>${b.title}</h4>${rows}</div>`;
+  }).join("");
+  const howto = (sheet.gearing?.howto || []).map((h) => `<li>${h}</li>`).join("");
+  return `<div class="gt7-sheet">
+    <div class="sheet-head"><h3>Réglages</h3><span class="meta">${s.tires}</span></div>
+    ${blocks}
+    <div class="sheet-note">${sheet.disclaimer || ""}</div>
+    ${howto ? `<div class="sheet-note"><ol>${howto}</ol></div>` : ""}
   </div>`;
 }
 
 function diagCard(d) {
-  if (!d || !(d.corrections || []).length) return "";
-  return `<div class="card wide"><h4>Diagnostic — ${d.labels.join(" · ")}</h4>
-    <div class="fix-list">${d.corrections.map((c) =>
-      `<div class="fix-item"><b>${c.area}</b><p>${c.text}</p><p class="meta">${c.symptom}</p></div>`
+  const items = d?.items || d?.corrections || [];
+  if (!d || !items.length) return "";
+  const labels = (d.labels || []).join(" · ");
+  return `<div class="card wide" style="margin-top:12px"><h4>Diagnostic — ${labels}</h4>
+    <div class="fix-list">${items.map((c) =>
+      `<div class="fix-item"><b>${c.symptom || c.area}</b><p>${c.detail || c.text || ""}</p></div>`
     ).join("")}</div>
   </div>`;
 }
@@ -445,16 +505,16 @@ function copyPlan(d) {
   lines.push(`Aéro AV ${s.aero.front} / AR ${s.aero.rear}`);
   lines.push(`LSD init ${s.lsd.initial} / accel ${s.lsd.accel} / decel ${s.lsd.decel}`);
   lines.push(`TCS ${s.tcs} · ABS ${s.abs}`);
-  if (s.gearing) {
+  if (s.sheet?.blocks) {
     lines.push("");
-    lines.push("ETALONNAGE BOITE");
-    lines.push(`Vmax auto ${s.gearing.max_speed} km/h · pont ${s.gearing.final_drive}`);
-    (s.gearing.ratios || []).forEach((r) => lines.push(`  ${r.gear} : ${Number(r.ratio).toFixed(3)}`));
-  }
-  if (s.diagnostics?.corrections?.length) {
-    lines.push("");
-    lines.push("DIAGNOSTIC");
-    s.diagnostics.corrections.forEach((c) => lines.push(`- ${c.area}: ${c.text}`));
+    lines.push("FEUILLE GT7");
+    s.sheet.blocks.forEach((b) => {
+      lines.push(`[${b.title}]`);
+      b.rows.forEach((r) => {
+        if (r.value != null) lines.push(`  ${r.label}: ${r.value}`);
+        else lines.push(`  ${r.label}: AV ${r.front} / AR ${r.rear}`);
+      });
+    });
   }
   navigator.clipboard.writeText(lines.join("\n")).then(() => alert("Plan copié dans le presse-papiers."));
 }
@@ -552,8 +612,84 @@ document.querySelectorAll("#styleSeg button").forEach((b) => {
 });
 $("go").addEventListener("click", generate);
 $("suggest").addEventListener("click", suggest);
+async function ensureCircuits() {
+  if (state.circuits) return state.circuits;
+  state.circuits = await (await fetch("/api/circuits")).json();
+  return state.circuits;
+}
+
+async function openTracks() {
+  const g = await ensureCircuits();
+  $("trackModal").hidden = false;
+  renderTrackRegions(g);
+  renderCircuitRow(g);
+  renderVariants(g);
+}
+
+function renderTrackRegions(g) {
+  const row = $("trackRegionRow");
+  row.innerHTML = `<button type="button" data-id="" class="${state.trackRegionId == null ? "on" : ""}">Toutes</button>` +
+    g.regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.trackRegionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
+  row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    state.trackRegionId = b.dataset.id === "" ? null : Number(b.dataset.id);
+    state.circuitId = null;
+    renderTrackRegions(g); renderCircuitRow(g); renderVariants(g);
+  }));
+}
+
+function renderCircuitRow(g) {
+  const row = $("circuitRow");
+  const list = g.circuits.filter((c) => state.trackRegionId == null || c.region_id === state.trackRegionId);
+  row.innerHTML = list.map((c) =>
+    `<button type="button" data-id="${c.id}" class="${state.circuitId === c.id ? "on" : ""}">${c.name}</button>`
+  ).join("");
+  row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    state.circuitId = Number(b.dataset.id);
+    renderCircuitRow(g); renderVariants(g);
+  }));
+}
+
+function renderVariants(g) {
+  const q = ($("trackSearch").value || "").trim().toLowerCase();
+  let circuits = g.circuits.filter((c) => state.trackRegionId == null || c.region_id === state.trackRegionId);
+  if (state.circuitId != null) circuits = circuits.filter((c) => c.id === state.circuitId);
+  const cards = [];
+  circuits.forEach((c) => {
+    c.variants.forEach((v) => {
+      if (q && !`${c.name} ${v.name}`.toLowerCase().includes(q)) return;
+      cards.push({ c, v });
+    });
+  });
+  $("variantGrid").innerHTML = cards.slice(0, 80).map(({ c, v }) => `
+    <button type="button" class="car-card" data-id="${v.id}">
+      ${imgTag(v.thumb || c.thumb, c.name, c.thumb)}
+      <div class="info">
+        <strong>${v.name.replace(c.name, "").replace(/^[\s\-:]+/, "") || v.name}</strong>
+        <small>${c.name} · ${Math.round(v.length)} m · ${v.corners} virages${v.reverse ? " · inv." : ""}</small>
+      </div>
+    </button>`).join("") || `<p class="meta">Aucune variante.</p>`;
+  bindThumbs($("variantGrid"));
+  $("variantGrid").querySelectorAll(".car-card").forEach((b) => b.addEventListener("click", () => {
+    const id = Number(b.dataset.id);
+    let found = null;
+    g.circuits.forEach((c) => c.variants.forEach((v) => { if (v.id === id) found = { ...v, family: c.name, thumb: v.thumb || c.thumb }; }));
+    if (found) {
+      pick("track", { id: found.id, name: found.name, profile: { labels: found.labels || [] } });
+      $("trackModal").hidden = true;
+    }
+  }));
+}
+
 $("openGarage").addEventListener("click", openGarage);
 $("closeGarage").addEventListener("click", () => ($("garageModal").hidden = true));
+$("openTracks").addEventListener("click", openTracks);
+$("closeTracks").addEventListener("click", () => ($("trackModal").hidden = true));
+$("trackModal").addEventListener("click", (e) => {
+  if (e.target.id === "trackModal") $("trackModal").hidden = true;
+});
+$("trackSearch").addEventListener("input", debounce(() => {
+  if (state.circuits) renderVariants(state.circuits);
+}, 120));
 $("garageModal").addEventListener("click", (e) => {
   if (e.target.id === "garageModal") $("garageModal").hidden = true;
 });

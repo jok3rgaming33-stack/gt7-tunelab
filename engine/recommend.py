@@ -11,8 +11,7 @@ from .catalog import (
     TIRE_COMPOUNDS,
     part_unlocked,
 )
-from .gearing import build_gearing
-from .symptoms import apply_symptoms
+from .sheet import build_sheet
 
 
 def _tire_by_code(code: str):
@@ -94,6 +93,7 @@ def recommend(car, track, opts):
     drivetrain_filters = opts.get("drivetrains") or []
     car_types = opts.get("car_types") or []
     symptoms = opts.get("symptoms") or []
+    pilot = opts.get("pilot") or {}
 
     profile = track["profile"]
     warnings = []
@@ -460,6 +460,7 @@ def recommend(car, track, opts):
         has_gt_auto=has_gt_auto,
         allow_wide=allow_wide and not race_car,
         symptoms=symptoms,
+        pilot=pilot,
     )
 
     # costs
@@ -545,196 +546,54 @@ def _dedupe(items):
     return out
 
 
-def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide, symptoms=None):
+def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide, symptoms=None, pilot=None):
     symptoms = symptoms or []
-    layout = profile["layout"]
-    surface = profile["surface"]
-    hills = profile["hills"]
-    stable = style == "stable"
-    chrono = style == "chrono"
-    drift = style == "drift"
-
-    # Downforce windows (GT7 typical unlocks)
-    if not has_gt_auto or surface != "tarmac":
-        aero = {
-            "front": "—",
-            "rear": "—",
-            "note": "Pas d'aéro (terre/neige) ou GT Auto off. Équilibre 100% châssis / LSD.",
-        }
-    elif layout == "high_speed":
-        aero = {
-            "front": "20–40 (sur 100)  |  diffuseur : 50–60",
-            "rear": "aileron 70–110  |  custom 80–130",
-            "note": "Moins d'appui, un peu plus à l'arrière pour ne pas décrocher en courbe rapide.",
-        }
-        if profile.get("oval") or "route x" in track["name"].lower():
-            aero = {
-                "front": "0–20",
-                "rear": "0–60 (wingless si dispo)",
-                "note": "Drag killer. Stabilise au LSD et à la géométrie, pas à l'aileron.",
-            }
-    elif layout == "technical":
-        aero = {
-            "front": "80–100",
-            "rear": "aileron 120–160  |  custom 150–200  |  diffuseur 80–100",
-            "note": "Max appui. Si sous-vireur : +avant ou −arrière. Si survireur : +arrière.",
-        }
-    else:
-        aero = {
-            "front": "60–85",
-            "rear": "aileron 100–140  |  custom 120–170",
-            "note": "Départ 45/55 environ (un peu plus à l'arrière). Ajuste après 3 tours.",
-        }
-
-    # Ride height / springs — percentages of typical GT7 sliders
-    if surface in ("dirt", "snow"):
-        ride = {
-            "front": "plutôt haut (70–90% de la plage, loin du talonnage)",
-            "rear": "égal ou +2 à +5 mm vs l'avant",
-            "note": "Garde de la course. Anti-plongée naturelle > look bas.",
-        }
-        springs = {
-            "front": "souple / médium (40–55%)",
-            "rear": "légèrement plus ferme que l'avant en 4WD, plus souple en propulsion",
-        }
-        arbs = {"front": "2–4", "rear": "1–3"}
-        dampers = {
-            "comp_fast": "Avant 2–3 / Arrière 2–3  (absorbe les cailloux)",
-            "comp_slow": "Avant 3–4 / Arrière 3–4",
-            "ext_fast": "Avant 4–6 / Arrière 4–6",
-            "ext_slow": "Avant 4–5 / Arrière 5–6",
-        }
-    else:
-        low = "le plus bas possible sans frotter les vibreurs"
-        if hills == "mountain" or "nordschleife" in track["name"].lower() or "panorama" in track["name"].lower():
-            low = "bas, mais +2–4 mm vs le minimum (compressions, crêtes)"
-        ride = {
-            "front": low,
-            "rear": "+2 à +6 mm vs l'avant (anti-squat visuel, plus de rotation)",
-            "note": "Si tu frottes : remonte d'abord l'avant. Talonnage = perte de platine, pas un look.",
-        }
-        if layout == "high_speed":
-            springs = {"front": "ferme (65–80%)", "rear": "ferme (60–75%)"}
-            arbs = {"front": "4–6", "rear": "3–5"}
-        elif layout == "technical":
-            springs = {"front": "médium (50–65%)", "rear": "médium-souple (45–60%)"}
-            arbs = {"front": "3–5", "rear": "2–4"}
-        else:
-            springs = {"front": "médium-ferme (55–70%)", "rear": "médium (50–65%)"}
-            arbs = {"front": "3–5", "rear": "2–4"}
-        if drivetrain == "FF":
-            arbs = {"front": "2–4 (évite le sous-virage)", "rear": "4–6"}
-        if drivetrain == "MR":
-            arbs["rear"] = "2–3 (l'arrière doit vivre un peu)"
-        dampers = {
-            "comp_fast": "Avant 3–4 / Arrière 3–4   (vibreurs : baisse d'1)",
-            "comp_slow": "Avant 4–6 / Arrière 4–5   (chrono : +1 avant)",
-            "ext_fast": "Avant 5–7 / Arrière 6–8",
-            "ext_slow": "Avant 5–6 / Arrière 6–7   (si survireur en relâché : +1 arrière)",
-        }
-        if stable:
-            springs = {k: v + " — vers le haut de la fourchette" for k, v in springs.items()}
-
-    camber = {
-        "front": "−2.0 à −2.8°" if not drift else "−0.5 à −1.5°",
-        "rear": "−1.6 à −2.4°" if not drift else "−0.8 à −1.8°",
-        "note": "Intérieur d'usure trop chaud : moins de carrossage. Extérieur trop chaud : plus de carrossage.",
-    }
-    if drivetrain == "FF":
-        camber["front"] = "−2.4 à −3.2°"
-    toe = {
-        "front": "0.00 à 0.10° ouvert (entrée)" if not stable else "0.00 à 0.05° ouvert",
-        "rear": "0.10 à 0.20° pincé (stabilité)",
-    }
-    if drift:
-        toe = {"front": "0.15–0.30° ouvert", "rear": "0.05–0.15° ouvert"}
-    if drivetrain == "MR" and chrono:
-        toe["rear"] = "0.08 à 0.14° pincé (un peu moins, pour tourner)"
-
-    # LSD numbers — GT7 typically 5–60 sliders, initial 5–60
-    if drift:
-        lsd = {"initial": "8–12", "accel": "40–55", "decel": "20–35",
-               "note": "Accel élevé pour tenir la glisse. Décel moyen pour engager."}
-    elif surface in ("dirt", "snow"):
-        lsd = {"initial": "6–10", "accel": "12–22", "decel": "8–16",
-               "note": "LSD souple : tu veux que la roue intérieure lâche un peu."}
-    elif drivetrain == "FF":
-        lsd = {"initial": "8–12", "accel": "18–28", "decel": "8–14",
-               "note": "Accel trop fort = sous-virage en sortie. Décel trop fort = rentre pas."}
-    elif drivetrain == "4WD":
-        lsd = {"initial": "10–16", "accel": "18–28", "decel": "12–20",
-               "note": "Couple centre : 35/65 à 45/55 (plus à l'arrière = plus vivant). Terre : 50/50."}
-    elif drivetrain == "MR":
-        lsd = {"initial": "8–12", "accel": "16–24", "decel": "10–16",
-               "note": "MR survire à l'accélération : n'exagère pas l'accel LSD. Décel trop fort = tête-à-queue à l'attaque."}
-    else:  # FR / RR
-        lsd = {"initial": "10–14", "accel": "20–32", "decel": "12–20",
-               "note": "Sous-vireur à l'attaque : +decel. Survireur en sortie : −accel. Instable au point corde : +initial."}
-    if stable and not drift:
-        lsd = {**lsd, "accel": lsd["accel"] + " (vers le bas)", "decel": lsd["decel"] + " (vers le haut)"}
-
-    gearing = build_gearing(track, profile, style, symptoms)
-    vmax = gearing["max_speed"]
-    trans_note = (
-        f"Étalonnage auto : Vmax {vmax} km/h · {gearing['gears']} rapports · pont {gearing['final_drive']:.3f} "
-        f"({gearing['spread']}). Détail dans le tableau d'étalonnage."
+    sheet = build_sheet(
+        car, track, profile, drivetrain, tire, style, symptoms, pilot or {},
+        cl, pp_limit, weather, has_gt_auto,
     )
-
-    ecu = "100%"
-    ballast = "0 kg"
-    ballast_pos = "0 (centre)"
-    if pp_limit:
-        ecu = "Descendre le % jusqu'à passer sous la limite (pas par pas de 1%)."
-        ballast = "0 kg d'abord. Si 1–3 PP au-dessus : 10–30 kg plutôt que de vider l'ECU."
-        if drivetrain == "FF":
-            ballast_pos = "vers l'arrière (50–80) pour faire tourner l'auto"
-        elif drivetrain == "MR":
-            ballast_pos = "légèrement vers l'avant (20–40) si l'arrière est trop vivant"
-        else:
-            ballast_pos = "0–30, ajuste selon le train qui décroche"
-
-    brakes_force = "6–7" if tire["grip"] >= 7 else "5–6"
-    if surface != "tarmac":
-        brakes_force = "4–5"
-    brake_bal = "2–3 vers l'arrière" if drivetrain in ("FR", "MR", "RR") else "0–2 vers l'avant"
-
-    nfr = {
-        "front": "2.35–2.55 Hz" if layout != "technical" else "2.20–2.40 Hz",
-        "rear": "2.15–2.35 Hz" if layout != "technical" else "2.05–2.25 Hz",
-        "note": "Fréquence naturelle : avant un peu plus haute que l'arrière. Si tu as les Hz à l'écran, c'est plus fiable que le % de ressort.",
-    }
-
+    g = sheet["gearing"]
+    n = sheet["numbers"]
     setup = {
         "tires": tire["name_fr"],
-        "ride": ride,
-        "springs": springs,
-        "nfr": nfr,
-        "arbs": arbs,
-        "dampers": dampers,
-        "camber": camber,
-        "toe": toe,
-        "lsd": lsd,
-        "aero": aero,
-        "transmission": trans_note,
-        "final_drive": f"Pont {gearing['final_drive']:.3f} — la dernière doit ruper en bout de ligne, pas avant.",
-        "gearing": gearing,
-        "ecu": ecu,
-        "ballast": ballast,
-        "ballast_pos": ballast_pos,
-        "brakes_force": brakes_force,
-        "brake_balance": brake_bal,
-        "abs": "1–2  (0 seulement si tu gères parfaitement ; 3+ = trop de distance)",
-        "tcs": (
-            "0 chrono / 1–2 stable. 4WD terre : 2–4. Pluie : 2–5."
-            if surface == "tarmac"
-            else "Terre 1–3. Neige 3–5. Drift : 0."
-        ),
+        "sheet": sheet,
+        "gearing": g,
+        "transmission": f"Étalonnage auto {g['max_speed']} km/h · pont {g['final_drive']:.3f}",
+        "final_drive": f"{g['final_drive']:.3f}",
+        "ecu": f"{n['ecu']} %",
+        "ballast": f"{n['ballast_kg']} kg",
+        "ballast_pos": str(n["ballast_pos"]),
+        "brakes_force": str(n["brake_force"]),
+        "brake_balance": str(n["brake_bal"]),
+        "abs": str(n["abs"]),
+        "tcs": str(n["tcs"]),
         "asm": "OFF",
-        "countersteer": "ON si pad, OFF si volant (sauf terre).",
-        "controller": _controller_note(drivetrain, surface, style),
+        "countersteer": "ON" if n["countersteer"] else "OFF",
+        "controller": _controller_note(drivetrain, profile["surface"], style),
         "session_plan": _session_plan(profile, drivetrain, pp_limit),
+        "aero": {"front": str(n["aero_f"]), "rear": str(n["aero_r"]), "note": ""},
+        "ride": {"front": f"{n['ride_f']} mm", "rear": f"{n['ride_r']} mm", "note": ""},
+        "springs": {"front": f"{n['spring_f']:.2f}", "rear": f"{n['spring_r']:.2f}"},
+        "nfr": {"front": f"{n['nfr_f']:.2f} Hz", "rear": f"{n['nfr_r']:.2f} Hz", "note": ""},
+        "arbs": {"front": str(n["arb_f"]), "rear": str(n["arb_r"])},
+        "dampers": {
+            "comp_fast": f"{n['damp_cf_f']} / {n['damp_cf_r']}",
+            "comp_slow": f"{n['damp_cs_f']} / {n['damp_cs_r']}",
+            "ext_fast": f"{n['damp_ef_f']} / {n['damp_ef_r']}",
+            "ext_slow": f"{n['damp_es_f']} / {n['damp_es_r']}",
+        },
+        "lsd": {
+            "initial": str(n["lsd_init"]),
+            "accel": str(n["lsd_acc"]),
+            "decel": str(n["lsd_dec"]),
+            "note": "",
+        },
+        "camber": {"front": f"{n['camber_f']:.1f}°", "rear": f"{n['camber_r']:.1f}°", "note": ""},
+        "toe": {"front": str(n["toe_f"]), "rear": str(n["toe_r"])},
+        "diagnostics": sheet["diagnostics"],
     }
-    return apply_symptoms(setup, symptoms)
+    return setup
+
 
 
 def _controller_note(drivetrain, surface, style):

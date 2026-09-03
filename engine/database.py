@@ -278,6 +278,47 @@ def slugify(text: str) -> str:
 
 
 IMG_BASE = "https://gtplus.app/images/cars"
+TRACK_IMG = "https://gtplus.app/images/tracks"
+
+TRACK_SLUG_ALIASES = {
+    "bb raceway": "broad-bean-raceway",
+    "24 heures du mans racing circuit": "circuit-de-la-sarthe",
+    "daytona tri-oval": "daytona-international-speedway",
+    "daytona road course": "daytona-international-speedway",
+    "brands hatch grand prix circuit": "brands-hatch",
+    "brands hatch indy circuit": "brands-hatch",
+}
+
+
+def family_name(name: str) -> str:
+    n = _norm(name)
+    n = re.sub(r"\s+(Reverse|Clockwise|Counterclockwise)$", "", n, flags=re.I)
+    if " - " in n:
+        n = n.split(" - ")[0]
+    if ":" in n:
+        n = n.split(":")[0]
+    n = re.sub(
+        r"\s*\(Short\)|\s*No Chicane|\s*Grand Prix Circuit|\s*Indy Circuit|"
+        r"\s*Grand Prix Layout.*|\s*Tourist Layout|\s*24h Layout|\s*Endurance|"
+        r"\s*Sprint|\s*National|\s*Rallycross",
+        "",
+        n,
+        flags=re.I,
+    )
+    return _norm(n)
+
+
+def track_slug(name: str) -> str:
+    fam = family_name(name).lower()
+    if fam in TRACK_SLUG_ALIASES:
+        return TRACK_SLUG_ALIASES[fam]
+    s = slugify(fam)
+    s = s.replace("nurburgringnordschleife", "nurburgring").replace("nurburgring-nordschleife", "nurburgring")
+    if s.startswith("nurburgring"):
+        return "nurburgring"
+    if s.startswith("fuji"):
+        return "fuji-international-speedway"
+    return s
 
 
 def car_images(maker: str, name: str) -> dict:
@@ -585,7 +626,17 @@ class Database:
                 }
                 track["profile"] = classify_track(track)
                 track["search"] = track["name"].lower()
+                track["family"] = family_name(track["name"])
+                track["base_id"] = int(row["Base"]) if row.get("Base") not in (None, "") else tid
+                cid = int(row["Country"]) if row.get("Country") not in (None, "") else 0
+                track["region_id"] = cid
                 out.append(track)
+        countries = self.countries
+        for t in out:
+            t["region"] = countries.get(t.get("region_id"), {}).get("name") or "Autres"
+            t["slug"] = track_slug(t["family"] or t["name"])
+            t["thumb"] = f"{TRACK_IMG}/{t['slug']}.jpg"
+            t["thumb_alt"] = t["thumb"]
         out.sort(key=lambda t: t["name"].lower())
         return out
 
@@ -667,6 +718,49 @@ class Database:
                 "cars_note": "Liste gt7info : les 4 voitures 1.71 (Caterham Seven, IONIQ 6 N, Chaser, Mark II) sont présentes.",
                 "swaps_note": "Swaps gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent manquer.",
             },
+        }
+
+    def circuits(self) -> dict:
+        countries = self.countries
+        families: dict[int, dict] = {}
+        for t in self.tracks:
+            bid = t.get("base_id") or t["id"]
+            fam = families.setdefault(bid, {
+                "id": bid,
+                "name": t.get("family") or t["name"],
+                "region_id": t.get("region_id", 0),
+                "region": t.get("region") or "Autres",
+                "slug": t.get("slug"),
+                "thumb": t.get("thumb"),
+                "variants": [],
+            })
+            # prefer shorter family name
+            if len(t.get("family") or t["name"]) < len(fam["name"]):
+                fam["name"] = t.get("family") or t["name"]
+                fam["slug"] = t.get("slug")
+                fam["thumb"] = t.get("thumb")
+            fam["variants"].append({
+                "id": t["id"],
+                "name": t["name"],
+                "length": t["length"],
+                "corners": t["corners"],
+                "reverse": t["reverse"],
+                "labels": t["profile"].get("labels") or [],
+                "thumb": t.get("thumb"),
+            })
+        circuits = sorted(families.values(), key=lambda c: c["name"].lower())
+        regions: dict[int, dict] = {}
+        for c in circuits:
+            rid = c["region_id"]
+            regions.setdefault(rid, {
+                "id": rid,
+                "name": c["region"],
+                "count": 0,
+            })
+            regions[rid]["count"] += 1
+        return {
+            "regions": sorted(regions.values(), key=lambda r: (-r["count"], r["name"])),
+            "circuits": circuits,
         }
 
     def search_tracks(self, q="", limit=80):

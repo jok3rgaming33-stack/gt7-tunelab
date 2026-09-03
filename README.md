@@ -58,6 +58,8 @@ npx vercel --prod
 
 La traction (FF/FR/MR/RR/4WD) est **déduite du nom** + table d’exceptions. Tu peux la forcer dans Options atelier.
 
+La feuille de réglages reprend la présentation GT7 (AV / AR, crans exacts). L’interface est prévue PC et mobile (modales plein écran, boutons 44 px, feuille lisible au pouce).
+
 ## Couverture (patch 1.71 — août 2026)
 
 - **584 voitures** (gt7info) : Caterham Seven Superlight R500, IONIQ 6 N, Chaser Tourer V, Mark II Tourer V inclus.

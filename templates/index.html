@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>GT7 TuneLab</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -36,8 +36,9 @@
       <div class="picked" id="carPicked">Aucune voiture</div>
 
       <label>Circuit</label>
+      <button type="button" class="btn ghost" id="openTracks">Région → circuit → variante</button>
       <div class="combo" data-kind="track">
-        <input id="trackQuery" type="search" placeholder="Spa, Tokyo, Sardegna…" autocomplete="off" />
+        <input id="trackQuery" type="search" placeholder="Ou cherche Spa, Tokyo…" autocomplete="off" />
         <div class="combo-list" id="trackList" hidden></div>
       </div>
       <div class="picked" id="trackPicked">Aucun circuit</div>
@@ -45,13 +46,18 @@
       <label>Rang collectionneur <span class="val" id="clVal">20</span></label>
       <input id="collector" type="range" min="1" max="50" value="20" />
 
-      <label>Style de conduite</label>
+      <label>Intention</label>
       <div class="seg" id="styleSeg">
-        <button type="button" data-v="stable">Stable</button>
+        <button type="button" data-v="stable">Course stable</button>
         <button type="button" data-v="polyvalent" class="on">Polyvalent</button>
-        <button type="button" data-v="chrono">Chrono</button>
+        <button type="button" data-v="chrono">Qualifs / chrono</button>
         <button type="button" data-v="drift">Drift</button>
       </div>
+
+      <details class="regs" open>
+        <summary>Style de pilotage</summary>
+        <div id="pilotFields"></div>
+      </details>
 
       <label>Météo</label>
       <select id="weather"></select>
@@ -76,8 +82,9 @@
 
       <details class="regs" open>
         <summary>Comportement ressenti (multi-choix)</summary>
-        <p class="hint" style="margin-top:8px">Coche ce que tu sens en piste. Le plan ajuste LSD, aéro, géométrie, freins, boîte… route ou course.</p>
+        <p class="hint" style="margin-top:8px">Survole (PC) ou appuie (tactile) pour l'explication. Coche ce que tu sens — le plan pose des crans exacts.</p>
         <div id="symptomGroups"></div>
+        <div class="sym-pop" id="symPop" hidden></div>
       </details>
 
       <details class="regs">
@@ -105,6 +112,22 @@
       </div>
     </section>
   </main>
+
+  <div class="modal" id="trackModal" hidden>
+    <div class="modal-card">
+      <header>
+        <div>
+          <p class="eyebrow">Circuits</p>
+          <h2>Région → circuit → variante</h2>
+        </div>
+        <button type="button" class="btn ghost" id="closeTracks">Fermer</button>
+      </header>
+      <input id="trackSearch" type="search" placeholder="Filtrer…" autocomplete="off" />
+      <div class="picker-row" id="trackRegionRow"></div>
+      <div class="picker-row makers" id="circuitRow"></div>
+      <div class="car-grid" id="variantGrid"></div>
+    </div>
+  </div>
 
   <div class="modal" id="garageModal" hidden>
     <div class="modal-card">

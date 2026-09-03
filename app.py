@@ -10,6 +10,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from engine.catalog import CAR_TYPES, CATEGORIES, DRIVETRAINS, PARTS, TIERS, TIRE_COMPOUNDS, WEATHER
 from engine.database import Database
 from engine.recommend import recommend, suggest_cars
+from engine.sheet import PILOTING
 from engine.symptoms import grouped_symptoms
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +39,7 @@ def meta():
         "weather": WEATHER,
         "tiers": TIERS,
         "symptoms": grouped_symptoms(),
+        "piloting": PILOTING,
         "coverage": garage["coverage"],
         "counts": {
             "cars": len(db.cars),
@@ -51,6 +53,11 @@ def meta():
 @app.get("/api/garage")
 def garage():
     return jsonify(db.garage())
+
+
+@app.get("/api/circuits")
+def circuits():
+    return jsonify(db.circuits())
 
 
 @app.get("/api/cars")
