@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import csv
 import re
+import unicodedata
 from functools import cached_property
 from pathlib import Path
 
 from .catalog import swap_cost
+
+
+def alpha_key(s: str) -> str:
+    """Tri A→Z français (accents ignorés) : Allemagne avant Japon."""
+    nfkd = unicodedata.normalize("NFKD", (s or "").casefold())
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -566,7 +573,7 @@ class Database:
                     "search": f"{full} {category} {drivetrain} {car_type} {maker.get('region','')}".lower(),
                     **imgs,
                 })
-        cars.sort(key=lambda c: c["full_name"].lower())
+        cars.sort(key=lambda c: alpha_key(c["full_name"]))
         # attach swaps later
         swaps_by_car = self.swaps_by_car
         for c in cars:
@@ -712,7 +719,7 @@ class Database:
             "image": c.get("image"),
         } for c in self.cars]
         return {
-            "regions": sorted(regions.values(), key=lambda r: (-r["count"], r["name"])),
+            "regions": sorted(regions.values(), key=lambda r: alpha_key(r["name"])),
             "makers": makers_out,
             "cars": cars_min,
             "coverage": {
@@ -752,7 +759,9 @@ class Database:
                 "labels": t["profile"].get("labels") or [],
                 "thumb": t.get("thumb"),
             })
-        circuits = sorted(families.values(), key=lambda c: c["name"].lower())
+        circuits = sorted(families.values(), key=lambda c: alpha_key(c["name"]))
+        for fam in circuits:
+            fam["variants"].sort(key=lambda v: alpha_key(v["name"]))
         regions: dict[int, dict] = {}
         for c in circuits:
             rid = c["region_id"]
@@ -763,7 +772,7 @@ class Database:
             })
             regions[rid]["count"] += 1
         return {
-            "regions": sorted(regions.values(), key=lambda r: (-r["count"], r["name"])),
+            "regions": sorted(regions.values(), key=lambda r: alpha_key(r["name"])),
             "circuits": circuits,
         }
 

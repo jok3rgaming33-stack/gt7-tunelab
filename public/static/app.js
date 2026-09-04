@@ -13,6 +13,11 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const collator = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
+
+function byName(a, b, key = "name") {
+  return collator.compare(a[key] || "", b[key] || "");
+}
 
 function debounce(fn, ms = 180) {
   let t;
@@ -96,47 +101,18 @@ function selectedChips(el) {
   return [...el.querySelectorAll("button.on")].map((b) => b.dataset.id);
 }
 
-function bindCombo(input, list, kind) {
-  const search = debounce(async () => {
-    const q = input.value.trim();
-    const url = kind === "car" ? `/api/cars?q=${encodeURIComponent(q)}&limit=40` : `/api/tracks?q=${encodeURIComponent(q)}&limit=40`;
-    const rows = await (await fetch(url)).json();
-    list.hidden = false;
-    list.innerHTML = "";
-    if (!rows.length) {
-      list.innerHTML = `<button type="button" disabled>Aucun résultat</button>`;
-      return;
-    }
-    rows.forEach((row, i) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      if (kind === "car") {
-        b.innerHTML = `<strong>${row.full_name}</strong><small>${row.category} · ${row.drivetrain}${row.has_swap ? " · swap" : ""}</small>`;
-      } else {
-        const p = row.profile?.labels?.join(" · ") || row.category;
-        b.innerHTML = `<strong>${row.name}</strong><small>${p}</small>`;
-      }
-      if (i === 0) b.classList.add("active");
-      b.addEventListener("click", () => pick(kind, row));
-      list.appendChild(b);
-    });
-  });
-  input.addEventListener("input", search);
-  input.addEventListener("focus", () => {
-    if (input.value || !list.innerHTML) search();
-    else list.hidden = false;
-  });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const first = list.querySelector("button:not([disabled])");
-      if (first) first.click();
-    }
-    if (e.key === "Escape") list.hidden = true;
-  });
-  document.addEventListener("click", (ev) => {
-    if (!ev.target.closest(".combo")) list.hidden = true;
-  });
+function setSlotMedia(id, src, alt) {
+  const el = $(id);
+  if (!el) return;
+  const ph = (alt || "GT").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "GT";
+  if (src) {
+    el.innerHTML = `<img src="${src}" alt="" loading="lazy">`;
+    el.querySelector("img").addEventListener("error", () => {
+      el.innerHTML = `<span class="slot-ph">${ph}</span>`;
+    }, { once: true });
+  } else {
+    el.innerHTML = `<span class="slot-ph">${ph}</span>`;
+  }
 }
 
 async function pick(kind, row) {
@@ -147,15 +123,21 @@ async function pick(kind, row) {
       } catch (_) { /* keep the thin row */ }
     }
     state.car = row;
-    $("carPicked").textContent = `${row.full_name}  ·  ${row.category}  ·  ${row.drivetrain}${row.has_swap ? "  ·  swap dispo" : ""}`;
-    $("carQuery").value = row.full_name;
-    $("carList").hidden = true;
+    $("carPicked").textContent = row.full_name;
+    if ($("carMeta")) {
+      $("carMeta").textContent = `${row.category} · ${row.drivetrain}${row.has_swap ? " · swap" : ""}`;
+    }
+    setSlotMedia("carMedia", row.thumb || row.image, row.maker || row.name);
+    $("openGarage")?.classList.add("filled");
     fillSwapSelect(row);
   } else {
     state.track = row;
-    $("trackPicked").textContent = `${row.name}  ·  ${(row.profile?.labels || []).join(" · ")}`;
-    $("trackQuery").value = row.name;
-    $("trackList").hidden = true;
+    $("trackPicked").textContent = row.name;
+    if ($("trackMeta")) {
+      $("trackMeta").textContent = (row.profile?.labels || []).join(" · ") || "Circuit";
+    }
+    setSlotMedia("trackMedia", row.thumb, row.name);
+    $("openTracks")?.classList.add("filled");
   }
 }
 
@@ -591,8 +573,9 @@ async function openGarage() {
 
 function renderRegions(g) {
   const row = $("regionRow");
+  const regions = [...g.regions].sort((a, b) => byName(a, b));
   row.innerHTML = `<button type="button" data-id="" class="${state.regionId == null ? "on" : ""}">Toutes</button>` +
-    g.regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.regionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
+    regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.regionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
   row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     state.regionId = b.dataset.id === "" ? null : Number(b.dataset.id);
     state.makerId = null;
@@ -602,7 +585,9 @@ function renderRegions(g) {
 
 function renderMakers(g) {
   const row = $("makerRow");
-  const makers = g.makers.filter((m) => state.regionId == null || m.region_id === state.regionId);
+  const makers = g.makers
+    .filter((m) => state.regionId == null || m.region_id === state.regionId)
+    .sort((a, b) => byName(a, b));
   row.innerHTML = `<button type="button" data-id="" class="${state.makerId == null ? "on" : ""}">Tous</button>` +
     makers.map((m) => `<button type="button" data-id="${m.id}" class="${state.makerId === m.id ? "on" : ""}">${m.name} (${m.count})</button>`).join("");
   row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
@@ -618,7 +603,7 @@ function renderCarGrid(g) {
     if (state.makerId != null && c.maker_id !== state.makerId) return false;
     if (q && !`${c.full_name} ${c.category} ${c.drivetrain}`.toLowerCase().includes(q)) return false;
     return true;
-  }).slice(0, 120);
+  }).sort((a, b) => collator.compare(a.full_name, b.full_name)).slice(0, 120);
   $("carGrid").innerHTML = cars.map((c) => `
     <button type="button" class="car-card" data-id="${c.id}">
       ${imgTag(c.thumb, c.maker, c.thumb_alt)}
@@ -663,8 +648,9 @@ async function openTracks() {
 
 function renderTrackRegions(g) {
   const row = $("trackRegionRow");
+  const regions = [...g.regions].sort((a, b) => byName(a, b));
   row.innerHTML = `<button type="button" data-id="" class="${state.trackRegionId == null ? "on" : ""}">Toutes</button>` +
-    g.regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.trackRegionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
+    regions.map((r) => `<button type="button" data-id="${r.id}" class="${state.trackRegionId === r.id ? "on" : ""}">${r.name} (${r.count})</button>`).join("");
   row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     state.trackRegionId = b.dataset.id === "" ? null : Number(b.dataset.id);
     state.circuitId = null;
@@ -674,7 +660,9 @@ function renderTrackRegions(g) {
 
 function renderCircuitRow(g) {
   const row = $("circuitRow");
-  const list = g.circuits.filter((c) => state.trackRegionId == null || c.region_id === state.trackRegionId);
+  const list = g.circuits
+    .filter((c) => state.trackRegionId == null || c.region_id === state.trackRegionId)
+    .sort((a, b) => byName(a, b));
   row.innerHTML = list.map((c) =>
     `<button type="button" data-id="${c.id}" class="${state.circuitId === c.id ? "on" : ""}">${c.name}</button>`
   ).join("");
@@ -695,6 +683,7 @@ function renderVariants(g) {
       cards.push({ c, v });
     });
   });
+  cards.sort((a, b) => collator.compare(a.v.name, b.v.name) || collator.compare(a.c.name, b.c.name));
   $("variantGrid").innerHTML = cards.slice(0, 80).map(({ c, v }) => `
     <button type="button" class="car-card" data-id="${v.id}">
       ${imgTag(v.thumb || c.thumb, c.name, c.thumb)}
@@ -709,7 +698,7 @@ function renderVariants(g) {
     let found = null;
     g.circuits.forEach((c) => c.variants.forEach((v) => { if (v.id === id) found = { ...v, family: c.name, thumb: v.thumb || c.thumb }; }));
     if (found) {
-      pick("track", { id: found.id, name: found.name, profile: { labels: found.labels || [] } });
+      pick("track", { id: found.id, name: found.name, profile: { labels: found.labels || [] }, thumb: found.thumb });
       $("trackModal").hidden = true;
     }
   }));
@@ -731,6 +720,4 @@ $("garageModal").addEventListener("click", (e) => {
 $("garageSearch").addEventListener("input", debounce(() => {
   if (state.garage) renderCarGrid(state.garage);
 }, 120));
-bindCombo($("carQuery"), $("carList"), "car");
-bindCombo($("trackQuery"), $("trackList"), "track");
 loadMeta();

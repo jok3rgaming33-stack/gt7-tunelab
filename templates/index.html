@@ -8,15 +8,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=171-swap" />
+  <link rel="stylesheet" href="/static/style.css?v=171-ui" />
 </head>
 <body>
   <div class="bg"></div>
   <header class="top">
     <div class="brand">
-      <div class="mark"></div>
+      <div class="mark">GT</div>
       <div>
-        <p class="eyebrow">Gran Turismo 7 · Atelier + GT Auto</p>
+        <p class="eyebrow">Gran Turismo 7 · World Circuits</p>
         <h1>TuneLab</h1>
       </div>
     </div>
@@ -25,23 +25,34 @@
 
   <main class="layout">
     <aside class="panel form-panel">
-      <h2>Briefing</h2>
+      <p class="panel-kicker">Briefing</p>
+      <h2>Sélection</h2>
 
-      <label>Voiture</label>
-      <button type="button" class="btn ghost" id="openGarage">Région → constructeur → modèle</button>
-      <div class="combo" data-kind="car">
-        <input id="carQuery" type="search" placeholder="Ou cherche un nom, Gr.3, GT-R…" autocomplete="off" />
-        <div class="combo-list" id="carList" hidden></div>
+      <div class="slot-block">
+        <span class="slot-label">01 · Voiture</span>
+        <button type="button" class="slot" id="openGarage">
+          <div class="slot-media" id="carMedia"><span class="slot-ph">GT</span></div>
+          <div class="slot-info">
+            <span class="slot-kicker">Garage</span>
+            <strong id="carPicked">Choisir une voiture</strong>
+            <small id="carMeta">Région → constructeur → modèle</small>
+          </div>
+          <span class="slot-chevron" aria-hidden="true"></span>
+        </button>
       </div>
-      <div class="picked" id="carPicked">Aucune voiture</div>
 
-      <label>Circuit</label>
-      <button type="button" class="btn ghost" id="openTracks">Région → circuit → variante</button>
-      <div class="combo" data-kind="track">
-        <input id="trackQuery" type="search" placeholder="Ou cherche Spa, Tokyo…" autocomplete="off" />
-        <div class="combo-list" id="trackList" hidden></div>
+      <div class="slot-block">
+        <span class="slot-label">02 · Circuit</span>
+        <button type="button" class="slot" id="openTracks">
+          <div class="slot-media" id="trackMedia"><span class="slot-ph">WP</span></div>
+          <div class="slot-info">
+            <span class="slot-kicker">World Circuits</span>
+            <strong id="trackPicked">Choisir un circuit</strong>
+            <small id="trackMeta">Région → circuit → variante</small>
+          </div>
+          <span class="slot-chevron" aria-hidden="true"></span>
+        </button>
       </div>
-      <div class="picked" id="trackPicked">Aucun circuit</div>
 
       <label>Rang collectionneur <span class="val" id="clVal">20</span></label>
       <input id="collector" type="range" min="1" max="50" value="20" />
@@ -112,8 +123,8 @@
 
     <section class="panel results" id="results">
       <div class="empty" id="empty">
-        <p class="eyebrow">En attente de briefing</p>
-        <h2>Choisis une voiture, un circuit, ton rang — l'atelier s'occupe du reste.</h2>
+        <p class="eyebrow">Stand · en attente</p>
+        <h2>Choisis une voiture et un circuit — l'atelier s'occupe du reste.</h2>
         <p>Liste d'achats (Sports → Ultimate), GT Auto (kit large, aéro, swap), et feuille de réglages calée sur le tracé.</p>
       </div>
     </section>
@@ -156,6 +167,6 @@
     PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
   </footer>
 
-  <script src="/static/app.js?v=171-swap"></script>
+  <script src="/static/app.js?v=171-ui"></script>
 </body>
 </html>
