@@ -13,6 +13,12 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const STYLE_INFO = {
+  stable: { title: "Course stable", hint: "Priorité à la prévisibilité et au grip." },
+  polyvalent: { title: "Polyvalent", hint: "Équilibré sur l'ensemble du tour." },
+  chrono: { title: "Qualifs / chrono", hint: "Agressif : appui et réponse pour le temps au tour." },
+  drift: { title: "Drift", hint: "L'auto doit pivoter et rester jouable en glisse." },
+};
 const collator = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
 
 function byName(a, b, key = "name") {
@@ -268,6 +274,7 @@ async function generate() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erreur");
     state.last = data;
+    document.body.classList.add("has-plan");
     render(data);
     if (window.matchMedia("(max-width: 980px)").matches) {
       $("results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -293,6 +300,7 @@ async function suggest() {
   });
   const data = await res.json();
   if (!res.ok) return alert(data.error || "Erreur");
+  document.body.classList.add("has-plan");
   const box = $("results");
   box.innerHTML = `
     <div class="hero"><div>
@@ -622,14 +630,23 @@ function renderCarGrid(g) {
   }));
 }
 
+function setStyleCard(id) {
+  const info = STYLE_INFO[id] || STYLE_INFO.polyvalent;
+  if ($("styleTitle")) $("styleTitle").textContent = info.title;
+  if ($("styleHint")) $("styleHint").textContent = info.hint;
+}
 $("collector").addEventListener("input", () => ($("clVal").textContent = $("collector").value));
 document.querySelectorAll("#styleSeg button").forEach((b) => {
   b.addEventListener("click", () => {
     document.querySelectorAll("#styleSeg button").forEach((x) => x.classList.remove("on"));
     b.classList.add("on");
     state.style = b.dataset.v;
+    setStyleCard(state.style);
   });
 });
+if ($("navToggle")) {
+  $("navToggle").addEventListener("click", () => document.body.classList.toggle("nav-open"));
+}
 $("go").addEventListener("click", generate);
 $("suggest").addEventListener("click", suggest);
 async function ensureCircuits() {

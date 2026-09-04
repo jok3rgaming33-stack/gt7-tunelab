@@ -8,64 +8,75 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=171-ui" />
+  <link rel="stylesheet" href="/static/style.css?v=171-hero" />
 </head>
 <body>
-  <div class="bg"></div>
+  <div class="hero-bg" aria-hidden="true"></div>
+  <div class="hero-scrim" aria-hidden="true"></div>
+
   <header class="top">
     <div class="brand">
       <div class="mark">GT</div>
-      <div>
-        <p class="eyebrow">Gran Turismo 7 · World Circuits</p>
-        <h1>TuneLab</h1>
-      </div>
+      <h1>TuneLab</h1>
     </div>
+    <nav class="nav" id="siteNav">
+      <a href="#atelier">Atelier</a>
+      <a href="#results">Configurations</a>
+      <a href="#about">À propos</a>
+    </nav>
     <div class="stats" id="stats">—</div>
+    <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
   </header>
 
   <main class="layout">
-    <aside class="panel form-panel">
-      <p class="panel-kicker">Briefing</p>
-      <h2>Sélection</h2>
+    <aside class="glass form-panel" id="atelier">
+      <button type="button" class="slot" id="openGarage">
+        <span class="slot-num">01</span>
+        <span class="slot-copy">
+          <b>Voiture</b>
+          <strong id="carPicked">Choisir une voiture</strong>
+          <small id="carMeta">Région → constructeur → modèle</small>
+        </span>
+        <span class="slot-media" id="carMedia" hidden></span>
+        <span class="slot-chevron" aria-hidden="true"></span>
+      </button>
 
-      <div class="slot-block">
-        <span class="slot-label">01 · Voiture</span>
-        <button type="button" class="slot" id="openGarage">
-          <div class="slot-media" id="carMedia"><span class="slot-ph">GT</span></div>
-          <div class="slot-info">
-            <span class="slot-kicker">Garage</span>
-            <strong id="carPicked">Choisir une voiture</strong>
-            <small id="carMeta">Région → constructeur → modèle</small>
+      <button type="button" class="slot" id="openTracks">
+        <span class="slot-num">02</span>
+        <span class="slot-copy">
+          <b>Circuit</b>
+          <strong id="trackPicked">Choisir un circuit</strong>
+          <small id="trackMeta">Région → circuit → variante</small>
+        </span>
+        <span class="slot-media" id="trackMedia" hidden></span>
+        <span class="slot-chevron" aria-hidden="true"></span>
+      </button>
+
+      <div class="intent">
+        <div class="intent-scale">
+          <span>Équilibré</span>
+          <span>Agressif</span>
+        </div>
+        <div class="seg" id="styleSeg">
+          <button type="button" data-v="stable">Course stable</button>
+          <button type="button" data-v="polyvalent" class="on">Polyvalent</button>
+          <button type="button" data-v="chrono">Qualifs / chrono</button>
+          <button type="button" data-v="drift">Drift</button>
+        </div>
+        <div class="style-card" id="styleCard">
+          <span class="style-ico" aria-hidden="true"></span>
+          <div>
+            <strong id="styleTitle">Polyvalent</strong>
+            <small id="styleHint">Équilibré sur l'ensemble du tour.</small>
           </div>
-          <span class="slot-chevron" aria-hidden="true"></span>
-        </button>
+          <span class="style-check" aria-hidden="true"></span>
+        </div>
       </div>
 
-      <div class="slot-block">
-        <span class="slot-label">02 · Circuit</span>
-        <button type="button" class="slot" id="openTracks">
-          <div class="slot-media" id="trackMedia"><span class="slot-ph">WP</span></div>
-          <div class="slot-info">
-            <span class="slot-kicker">World Circuits</span>
-            <strong id="trackPicked">Choisir un circuit</strong>
-            <small id="trackMeta">Région → circuit → variante</small>
-          </div>
-          <span class="slot-chevron" aria-hidden="true"></span>
-        </button>
-      </div>
-
-      <label>Rang collectionneur <span class="val" id="clVal">20</span></label>
+      <label class="cl-label">Rang collectionneur <span class="val" id="clVal">20</span></label>
       <input id="collector" type="range" min="1" max="50" value="20" />
 
-      <label>Intention</label>
-      <div class="seg" id="styleSeg">
-        <button type="button" data-v="stable">Course stable</button>
-        <button type="button" data-v="polyvalent" class="on">Polyvalent</button>
-        <button type="button" data-v="chrono">Qualifs / chrono</button>
-        <button type="button" data-v="drift">Drift</button>
-      </div>
-
-      <details class="regs" open>
+      <details class="regs">
         <summary>Style de pilotage</summary>
         <div id="pilotFields"></div>
       </details>
@@ -73,7 +84,7 @@
       <label>Météo</label>
       <select id="weather"></select>
 
-      <details class="regs" open>
+      <details class="regs">
         <summary>Restrictions / règlement</summary>
         <label>Pneus imposés</label>
         <select id="tires"><option value="">Libre (l'outil choisit)</option></select>
@@ -91,7 +102,7 @@
         <div class="chips" id="dtChips"></div>
       </details>
 
-      <details class="regs" open>
+      <details class="regs">
         <summary>Comportement ressenti (multi-choix)</summary>
         <p class="hint" style="margin-top:8px">Survole (PC) ou appuie (tactile) pour l'explication. Coche ce que tu sens — le plan pose des crans exacts.</p>
         <div id="symptomGroups"></div>
@@ -115,19 +126,18 @@
       </details>
 
       <div class="actions">
-        <button class="btn primary" id="go">Générer le plan</button>
+        <button class="btn primary" id="go">Générer le plan <span class="btn-arrow">→</span></button>
         <button class="btn ghost" id="suggest">Proposer une voiture</button>
       </div>
-      <p class="hint">Prix atelier relevés en jeu (Roadster NA / AMG GT Black Series, sept. 2026). Les Gr. ont souvent les pièces déjà montées — n'achète que ce que le menu affiche.</p>
+      <p class="hint">Prix atelier relevés en jeu (Roadster NA / AMG GT Black Series). Les Gr. ont souvent les pièces déjà montées — n'achète que ce que le menu affiche.</p>
     </aside>
 
-    <section class="panel results" id="results">
-      <div class="empty" id="empty">
-        <p class="eyebrow">Stand · en attente</p>
-        <h2>Choisis une voiture et un circuit — l'atelier s'occupe du reste.</h2>
-        <p>Liste d'achats (Sports → Ultimate), GT Auto (kit large, aéro, swap), et feuille de réglages calée sur le tracé.</p>
-      </div>
-    </section>
+    <div class="hero-copy" id="emptyHero">
+      <h2>Choisis une voiture et un circuit — l'atelier s'occupe du reste</h2>
+      <p class="stand"><span class="dot"></span> Stand · en attente</p>
+    </div>
+
+    <section class="glass results" id="results"></section>
   </main>
 
   <div class="modal" id="trackModal" hidden>
@@ -162,11 +172,13 @@
     </div>
   </div>
 
-  <footer id="footNote">
-    Outil communautaire, non affilié à Polyphony Digital / SIE. Bases voitures / circuits / swaps : gt7info + patch 1.71.
-    PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
+  <footer id="about">
+    <p id="footNote">
+      Outil communautaire, non affilié à Polyphony Digital / SIE. Bases voitures / circuits / swaps : gt7info + patch 1.71.
+      PP et dispo pièce par pièce ne sont pas officiels — toujours vérifier en jeu.
+    </p>
   </footer>
 
-  <script src="/static/app.js?v=171-ui"></script>
+  <script src="/static/app.js?v=171-hero"></script>
 </body>
 </html>
