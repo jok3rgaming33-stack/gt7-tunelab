@@ -737,4 +737,55 @@ $("garageModal").addEventListener("click", (e) => {
 $("garageSearch").addEventListener("input", debounce(() => {
   if (state.garage) renderCarGrid(state.garage);
 }, 120));
+function startHeroFx() {
+  const c = $("heroFx");
+  if (!c || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const ctx = c.getContext("2d");
+  const drops = [];
+  const fit = () => {
+    const r = c.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = Math.max(1, Math.floor(r.width * dpr));
+    c.height = Math.max(1, Math.floor(r.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = r.width;
+    const h = r.height;
+    const n = Math.max(50, Math.min(180, Math.floor((w * h) / 5000)));
+    drops.length = 0;
+    for (let i = 0; i < n; i++) {
+      drops.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        len: 14 + Math.random() * 22,
+        spd: 14 + Math.random() * 18,
+      });
+    }
+  };
+  const tick = () => {
+    const w = c.clientWidth;
+    const h = c.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineCap = "round";
+    for (const d of drops) {
+      ctx.strokeStyle = "rgba(235,245,255,0.72)";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + 4, d.y + d.len);
+      ctx.stroke();
+      d.y += d.spd;
+      d.x += 1.6;
+      if (d.y > h + 20) {
+        d.y = -d.len;
+        d.x = Math.random() * w;
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  fit();
+  window.addEventListener("resize", fit);
+  tick();
+}
+
 loadMeta();
+startHeroFx();

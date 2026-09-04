@@ -8,14 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=171-fx" />
+  <link rel="stylesheet" href="/static/style.css?v=171-fx2" />
 </head>
 <body>
-  <div class="hero-bg" aria-hidden="true">
-    <div class="hero-photo"></div>
-    <div class="hero-glow"></div>
-    <div class="hero-rain"></div>
-  </div>
   <div class="hero-scrim" aria-hidden="true"></div>
 
   <header class="top">
@@ -31,6 +26,11 @@
     <div class="stats" id="stats">—</div>
     <button type="button" class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
   </header>
+
+  <div class="hero-stage" aria-hidden="true">
+    <img class="hero-photo" src="/static/hero.jpg" alt="">
+    <canvas class="hero-fx" id="heroFx"></canvas>
+  </div>
 
   <main class="layout">
     <aside class="glass form-panel" id="atelier">
@@ -183,6 +183,6 @@
     </p>
   </footer>
 
-  <script src="/static/app.js?v=171-fx"></script>
+  <script src="/static/app.js?v=171-fx2"></script>
 </body>
 </html>
