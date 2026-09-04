@@ -42,7 +42,7 @@ npx vercel --prod
 
 ## Ce que tu reçois
 
-- Liste d’achats par étage d’atelier, avec **prix indicatif calé sur le type de voiture** (une Gr.3 n’est pas tarifée comme une supercar de série) et le *pourquoi*
+- Liste d’achats par étage d’atelier, avec **prix boutique relevés en jeu** (Roadster NA → AMG GT Black Series, sept. 2026) et le *pourquoi*
 - GT Auto : kit large, jantes, aéro, **swap choisi** (prix GT Auto du moteur)
 - Feuille de réglages : hauteur, ressorts, ARB, amortos, carrossage, LSD, aéro, boîte, ECU/lest, aides
 - Plan de session (ordre de montage, PP, T° pneus)

@@ -28,6 +28,7 @@ HYPERCAR_KEYS = (
 TUNER_KEYS = (
     "amuse", "greddy", "re amemiya", "mine's", "nismo 380", "wicked",
     "roadster shop", "chris holstrom", "eckert", "greening", "garage rcr",
+    "black series",
 )
 
 AWD_KEYS = (

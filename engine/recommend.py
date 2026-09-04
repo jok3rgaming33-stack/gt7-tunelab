@@ -476,7 +476,7 @@ def recommend(car, track, opts):
         pilot=pilot,
     )
 
-    # Dedupe then scale prices to THIS car (wiki road ≠ boutique Gr.3)
+    # Dedupe then scale prices to THIS car (captures atelier 09/2026)
     shopping = _dedupe(shopping)
     gt_auto = _dedupe(gt_auto)
     _apply_car_prices(shopping, car)
@@ -504,7 +504,7 @@ def recommend(car, track, opts):
         "cost_min": cmin,
         "cost_typical": ctyp,
         "cost_max": cmax,
-        "price_note": "Prix indicatifs selon le type de voiture (les Gr. sont beaucoup moins chères que le wiki série).",
+        "price_note": "Prix atelier relevés en jeu (Roadster NA → Black Series / Gr.3).",
         "pp_limit": pp_limit,
         "style": style,
         "weather": weather,

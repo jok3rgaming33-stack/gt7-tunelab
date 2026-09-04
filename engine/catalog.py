@@ -384,6 +384,106 @@ PARTS = [
      "requires": [], "replaces": [], "tags": ["cosmetic"]},
 ]
 
+# Prix boutique relevés en jeu (04/09/2026) :
+#   min = Mazda Eunos Roadster (NA) '89  — PP 380, road cheap
+#   max = Mercedes-AMG GT Black Series '20 — PP 671, complete car
+# Les fourchettes wiki (×50–100) ne correspondent plus à l'atelier actuel.
+_SHOP_OBS = {
+    "ecu_sport": (1400, 2500),
+    "air_sport": (600, 1200),
+    "muffler_sport": (1400, 2500),
+    "pads_sport": (300, 800),
+    "susp_street": (2100, 3500),
+    "wr1": (3000, 4300),
+    "tire_ch": (840, 1300),
+    "tire_cm": (1000, 1500),
+    "tire_cs": (1100, 1700),
+    "tire_sh": (2600, 4000),
+    "tire_sm": (3300, 5000),
+    "tire_ss": (4000, 6000),
+    "bore": (4500, 7100),
+    "cam": (4500, 7100),
+    "pistons_hc": (4500, 7100),
+    "susp_sport": (3100, 4000),
+    "brakes_sport": (1000, 2500),
+    "clutch_sport": (3100, 5000),
+    "lsd_1way": (3100, 5000),
+    "lsd_2way": (3100, 5000),
+    "trans_low": (4000, 6500),
+    "trans_high": (4800, 7500),
+    "wr2": (5000, 7000),
+    "restrictor": (800, 800),
+    "ballast": (500, 500),
+    "tire_dirt": (3150, 5000),
+    "crank": (10000, 15600),
+    "ecu_full": (3500, 6300),
+    "muffler_semi": (5250, 8000),
+    "turbo_low": (9700, 11300),
+    "turbo_mid": (11500, 13500),
+    "turbo_high": (17200, 18800),
+    "sc_low": (19000, 21000),
+    "ic_sport": (2000, 3000),
+    "susp_sport_adj": (4500, 11000),
+    "clutch_semi": (5100, 6000),
+    "lsd_full": (5250, 7800),
+    "trans_manual": (11000, 18000),
+    "wr3": (6000, 8000),
+    "rigidity": (12000, 30000),
+    "stroke": (14000, 21800),
+    "balance": (17500, 26800),
+    "ports": (12600, 19800),
+    "als": (4000, 5000),
+    "sc_high": (19000, 22000),
+    "ic_racing": (3100, 3600),
+    "air_racing": (2000, 3000),
+    "muffler_racing": (7000, 10500),
+    "manifold": (2450, 4000),
+    "pads_racing": (1000, 3000),
+    "brakes_slot": (3000, 8000),
+    "brakes_drill": (3000, 8000),
+    "brake_bal": (1500, 1500),
+    "susp_full": (12000, 24000),
+    "clutch_racing": (6400, 7500),
+    "center_diff": (5200, 8800),
+    "active_lsd": (4000, 7000),
+    "trans_seq": (14000, 21000),
+    "wr4": (15000, 26700),
+    "tire_rh": (12300, 18500),
+    "tire_rm": (19300, 28500),
+    "tire_rs": (26300, 38500),
+    "nitro": (100000, 100000),
+    "brakes_carbon": (10000, 21000),
+    "handbrake": (2500, 2500),
+    "steering_angle": (2500, 2500),
+    "4ws": (4000, 6000),
+    "tire_snow": (3150, 5000),
+    "tire_im": (17500, 28000),
+    "tire_w": (19300, 28500),
+    "new_engine": (17500, 210000),
+    "new_body": (42000, 504000),
+    "bore_s": (28000, 28000),
+    "ti_rods": (10000, 19000),
+    "cam_s": (8000, 8000),
+    "wr5": (500000, 500000),
+    "carbon_shaft": (3500, 9000),
+    # GT Auto : pas dans les captures atelier — ramené à l'échelle boutique (kCr, pas 100 kCr).
+    "widebody": (15000, 50000),
+    "wheels": (3000, 12000),
+    "aero_front": (5000, 20000),
+    "aero_side": (4000, 15000),
+    "aero_rear": (5000, 20000),
+    "aero_diffuser": (8000, 25000),
+    "wing_ab": (6000, 22000),
+    "wing_custom": (8000, 30000),
+    "rollcage": (8000, 25000),
+    "tire_sticker": (500, 1500),
+}
+
+for _p in PARTS:
+    band = _SHOP_OBS.get(_p["id"])
+    if band:
+        _p["price_min"], _p["price_max"] = band
+
 PARTS_BY_ID = {p["id"]: p for p in PARTS}
 
 CATEGORIES = [
@@ -442,68 +542,48 @@ def get_part(pid):
 
 
 def _round_cr(n):
-    """Arrondi façon boutique GT7."""
-    n = int(max(0, round(n)))
-    if n == 0:
+    """Arrondi boutique (garde les Cr. relevés : 840, 1 300, 13 500…)."""
+    n = float(n)
+    if n <= 0:
         return 0
     if n < 2000:
-        return int(round(n / 100.0) * 100)
+        return int(round(n / 10.0) * 10)
     if n < 20000:
-        return int(round(n / 500.0) * 500)
+        return int(round(n / 50.0) * 50)
     if n < 100000:
-        return int(round(n / 1000.0) * 1000)
-    if n < 1000000:
-        return int(round(n / 5000.0) * 5000)
-    return int(round(n / 10000.0) * 10000)
+        return int(round(n / 100.0) * 100)
+    return int(round(n / 1000.0) * 1000)
 
 
-def car_price_factors(car):
-    """Coeff. appliqués à la fourchette wiki (voitures de série).
-
-    Les Gr. / proto ont des pneus et kits boutique à quelques milliers de Cr
-    (ex. Gr.3 : CH ~1 300, SS ~6 000, turbo ~13 500) — ~1–2 % du wiki road.
-    """
+def car_price_t(car):
+    """0 = Roadster NA (atelier cheap), 1 = Black Series / Gr.3."""
     cat = car.get("category") or "Road"
     typ = car.get("car_type") or "Road Car"
     if cat == "Kart":
-        return 0.008, 0.012
-    if cat in ("Super Formula", "Gr.1"):
-        return 0.010, 0.018
-    if cat in ("Gr.2", "Gr.3"):
-        # Calé sur captures boutique Gr.3 (SS 6 000 / turbo 13 500).
-        return 0.015, 0.022
+        return 0.0
+    if cat in ("Super Formula", "Gr.1", "Gr.2", "Gr.3") or typ == "Racing Car":
+        return 1.0
     if cat in ("Gr.4", "Gr.B"):
-        return 0.035, 0.055
-    if typ == "Racing Car":
-        return 0.020, 0.035
+        return 0.85
     if typ in ("Hypercar", "Vision Gran Turismo"):
-        return 0.75, 1.00
+        return 1.2
     if typ == "Professionally-Tuned":
-        return 0.40, 0.65
-    # Road : bas de fourchette wiki (compact/sport), pas le max supercar.
-    return 0.12, 0.28
+        return 1.0
+    return 0.0
 
 
 def price_for(part, car):
-    """Prix indicatif de la pièce pour CETTE voiture (min, max, typical)."""
+    """Prix indicatif pour CETTE voiture, interpolé sur les captures atelier."""
     lo = int(part.get("price_min") or 0)
     hi = int(part.get("price_max") or lo)
-    if part.get("shop") == "roulette" or (lo == 0 and hi == 0):
+    if lo == 0 and hi == 0:
         return 0, 0, 0
-    flo, fhi = car_price_factors(car)
-    a = _round_cr(lo * flo)
-    b = _round_cr(hi * fhi)
-    if b < a:
-        a, b = b, a
-    if a <= 0 and lo > 0:
-        a = _round_cr(max(500, lo * flo))
-        b = max(a, b)
-    # Gr. : le bas de fourchette colle aux captures boutique (CH 1 300, SS 6 000).
-    if car.get("is_race") or (car.get("category") or "").startswith("Gr."):
-        typical = a
-    else:
-        typical = _round_cr((a + b) / 2) if a != b else a
-    return a, b, typical
+    if lo == hi:
+        return lo, hi, lo
+    t = max(0.0, min(1.35, float(car_price_t(car))))
+    val = lo + (hi - lo) * t if t <= 1.0 else hi * t
+    typical = _round_cr(val)
+    return typical, typical, typical
 
 
 # Prix d'achat GT Auto connus (moteur → Cr). Plus le motif est long, plus il gagne.
