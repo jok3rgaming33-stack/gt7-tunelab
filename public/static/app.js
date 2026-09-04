@@ -47,9 +47,6 @@ function rangePrice(a, b) {
 async function loadMeta() {
   const meta = await (await fetch("/api/meta")).json();
   state.meta = meta;
-  if (meta.coverage) {
-    $("footNote").innerHTML = `${meta.coverage.cars_note} ${meta.coverage.swaps_note} Miniatures : gtplus.app. Non affilié à PD / SIE.`;
-  }
   fillSymptoms(meta.symptoms || []);
   fillPiloting(meta.piloting || []);
   if (window.matchMedia("(max-width: 760px)").matches) {
