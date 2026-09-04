@@ -47,7 +47,6 @@ function rangePrice(a, b) {
 async function loadMeta() {
   const meta = await (await fetch("/api/meta")).json();
   state.meta = meta;
-  $("stats").innerHTML = `${meta.counts.cars} voitures · ${meta.counts.swaps || "—"} swaps · ${meta.counts.tracks} tracés`;
   if (meta.coverage) {
     $("footNote").innerHTML = `${meta.coverage.cars_note} ${meta.coverage.swaps_note} Miniatures : gtplus.app. Non affilié à PD / SIE.`;
   }
@@ -644,9 +643,7 @@ document.querySelectorAll("#styleSeg button").forEach((b) => {
     setStyleCard(state.style);
   });
 });
-if ($("navToggle")) {
-  $("navToggle").addEventListener("click", () => document.body.classList.toggle("nav-open"));
-}
+
 $("go").addEventListener("click", generate);
 $("suggest").addEventListener("click", suggest);
 async function ensureCircuits() {
