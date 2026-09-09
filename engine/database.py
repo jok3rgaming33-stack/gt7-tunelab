@@ -42,7 +42,7 @@ AWD_KEYS = (
     "918 spyder", "959", "g70 3.3t awd", "g70 gr4", "focus gr.b",
     "mustang gr.b", "86 gr.b", "nsx gr.b", "gt-r gr.b", "rcz gr.b",
     "wrx gr", "lancer evolution final gr", "genesis gr.b", "delta hf",
-    "integrale", "countach",  # wait no
+    "integrale",
 )
 
 # Fine-grained name rules applied after generic keys.
@@ -375,7 +375,10 @@ def infer_car_type(name: str, category: str) -> str:
     return "Road Car"
 
 
-def infer_drivetrain(car_id: int, name: str, category: str) -> str:
+def infer_drivetrain(car_id: int, name: str, category: str, override_dt: str | None = None) -> str:
+    # CSV / data overrides win over heuristics and the hard-coded map.
+    if override_dt in ("FF", "FR", "MR", "RR", "4WD"):
+        return override_dt
     if car_id in DRIVETRAIN_OVERRIDE:
         return DRIVETRAIN_OVERRIDE[car_id]
     if category == "Gr.B":
@@ -396,9 +399,14 @@ def infer_drivetrain(car_id: int, name: str, category: str) -> str:
     return "FR"
 
 
-def infer_pp_band(category: str, name: str) -> tuple[int | None, int | None]:
-    """Fourchette PP stock indicative (pneus d'origine)."""
+def infer_pp_band(category: str, name: str, car_type: str | None = None) -> tuple[int | None, int | None]:
+    """Fourchette PP stock indicative (pneus d'origine).
+
+    Les valeurs Road / Hypercar / VGT / Professionally-Tuned sont *indicatives*
+    (pas des PP exacts Polyphony) — utiles pour N-class et suggest_cars.
+    """
     n = name.lower()
+    ct = car_type or ""
     if category == "Gr.4":
         return 620, 655
     if category == "Gr.3":
@@ -417,7 +425,86 @@ def infer_pp_band(category: str, name: str) -> tuple[int | None, int | None]:
         return 900, 1350
     if "red bull x201" in n:
         return 900, 1100
+    # Road family — indicative bands by type / keywords
+    if ct == "Hypercar" or any(k in n for k in (
+        "chiron", "laferrari", "valkyrie", "jesko", "agera", "huayra", "senna",
+        "p1 ", "amg one", "sf90", "reventon", "sian",
+    )):
+        return 650, 780
+    if ct == "Vision Gran Turismo" or "vgt" in n or "vision gran turismo" in n:
+        return 620, 780
+    if ct == "Professionally-Tuned" or any(k in n for k in (
+        "amuse", "greddy", "re amemiya", "mine's", "nismo 380", "z-tune",
+        "black series", "roadster shop",
+    )):
+        return 520, 620
+    if any(k in n for k in ("gt3", "gt4", "gt500", "lm nismo", "racing")):
+        return 560, 700
+    # Generic Road Car: mid-performance stock band
+    if category == "Road":
+        if any(k in n for k in ("turbo", "gt-r", "nsx", "supra", "m3", "m4", "amg", "hellcat", "zr1", "viper")):
+            return 480, 580
+        if any(k in n for k in ("type r", "sti", "evolution", "s2000", "mx-5", "roadster", "brz", "86", "civic")):
+            return 400, 500
+        return 360, 480
     return None, None
+
+
+# N-class power bands aligned with catalog.CATEGORIES labels (ch = hp approx).
+N_CLASS_POWER = [
+    ("N100", 0, 149),
+    ("N200", 150, 249),
+    ("N300", 250, 349),
+    ("N400", 350, 449),
+    ("N500", 450, 549),
+    ("N600", 550, 649),
+    ("N700", 650, 749),
+    ("N800", 750, 949),  # catalogue saute N900 ; 750–949 → N800
+    ("N1000", 950, 9999),
+]
+
+# PP mid → N-class fallback when power_hp unknown (Road indicative).
+N_CLASS_PP = [
+    ("N100", 0, 399),
+    ("N200", 400, 449),
+    ("N300", 450, 499),
+    ("N400", 500, 549),
+    ("N500", 550, 599),
+    ("N600", 600, 649),
+    ("N700", 650, 699),
+    ("N800", 700, 799),
+    ("N1000", 800, 9999),
+]
+
+
+def n_class_from_power(power_hp: float | int | None) -> str | None:
+    if power_hp is None:
+        return None
+    try:
+        hp = float(power_hp)
+    except (TypeError, ValueError):
+        return None
+    for label, lo, hi in N_CLASS_POWER:
+        if lo <= hp <= hi:
+            return label
+    return None
+
+
+def n_class_from_pp(pp_lo: int | None, pp_hi: int | None) -> str | None:
+    vals = [v for v in (pp_lo, pp_hi) if v is not None]
+    if not vals:
+        return None
+    mid = sum(vals) / len(vals)
+    for label, lo, hi in N_CLASS_PP:
+        if lo <= mid <= hi:
+            return label
+    return None
+
+
+def infer_n_class(power_hp=None, pp_lo=None, pp_hi=None, explicit: str | None = None) -> str | None:
+    if explicit:
+        return explicit.strip()
+    return n_class_from_power(power_hp) or n_class_from_pp(pp_lo, pp_hi)
 
 
 def classify_track(track: dict) -> dict:
@@ -509,6 +596,46 @@ class Database:
         self.root = Path(root) if root else DATA
 
     @cached_property
+    def car_overrides(self) -> dict[int, dict]:
+        """Overrides data-driven : drivetrain, PP, power_hp, n_class.
+
+        Fichier optionnel data/car_overrides.csv — colonnes :
+        id,drivetrain,pp_lo,pp_hi,power_hp,n_class
+        (champs vides = ignorer ce champ). Priorité sur heuristics / DRIVETRAIN_OVERRIDE.
+        """
+        out: dict[int, dict] = {}
+        path = self.root / "car_overrides.csv"
+        if not path.exists():
+            return out
+        with open(path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                raw_id = (row.get("id") or row.get("ID") or "").strip()
+                if not raw_id:
+                    continue
+                try:
+                    cid = int(raw_id)
+                except ValueError:
+                    continue
+                entry: dict = {}
+                dt = (row.get("drivetrain") or "").strip().upper()
+                if dt in ("FF", "FR", "MR", "RR", "4WD"):
+                    entry["drivetrain"] = dt
+                for key in ("pp_lo", "pp_hi", "power_hp"):
+                    raw = (row.get(key) or "").strip()
+                    if raw == "":
+                        continue
+                    try:
+                        entry[key] = int(float(raw))
+                    except ValueError:
+                        pass
+                nc = (row.get("n_class") or "").strip()
+                if nc:
+                    entry["n_class"] = nc
+                if entry:
+                    out[cid] = entry
+        return out
+
+    @cached_property
     def countries(self) -> dict[int, dict]:
         out = {}
         path = self.root / "countries.csv"
@@ -544,6 +671,7 @@ class Database:
     @cached_property
     def cars(self) -> list[dict]:
         makers = self.makers
+        overrides = self.car_overrides
         cars = []
         with open(self.root / "cars.csv", encoding="utf-8") as f:
             for row in csv.DictReader(f):
@@ -553,8 +681,19 @@ class Database:
                 maker = makers.get(maker_id, {"name": "Inconnu"})
                 category = infer_category(name)
                 car_type = infer_car_type(name, category)
-                drivetrain = infer_drivetrain(cid, name, category)
-                pp_lo, pp_hi = infer_pp_band(category, name)
+                ov = overrides.get(cid) or {}
+                drivetrain = infer_drivetrain(cid, name, category, ov.get("drivetrain"))
+                pp_lo, pp_hi = infer_pp_band(category, name, car_type)
+                if "pp_lo" in ov:
+                    pp_lo = ov["pp_lo"]
+                if "pp_hi" in ov:
+                    pp_hi = ov["pp_hi"]
+                power_hp = ov.get("power_hp")
+                # N-class = Sport Mode road regs ; pas pour Gr./SF/Kart
+                if category == "Road" or str(ov.get("n_class") or "").startswith("N"):
+                    n_class = infer_n_class(power_hp, pp_lo, pp_hi, ov.get("n_class"))
+                else:
+                    n_class = None
                 full = f"{maker['name']} {name}"
                 imgs = car_images(maker["name"], name)
                 cars.append({
@@ -570,8 +709,13 @@ class Database:
                     "drivetrain": drivetrain,
                     "pp_lo": pp_lo,
                     "pp_hi": pp_hi,
+                    "power_hp": power_hp,
+                    "n_class": n_class,
                     "is_race": car_type == "Racing Car" or category.startswith("Gr.") or category in ("Super Formula", "Kart"),
-                    "search": f"{full} {category} {drivetrain} {car_type} {maker.get('region','')}".lower(),
+                    "search": (
+                        f"{full} {category} {drivetrain} {car_type} "
+                        f"{n_class or ''} {maker.get('region','')}"
+                    ).lower(),
                     **imgs,
                 })
         cars.sort(key=lambda c: alpha_key(c["full_name"]))
@@ -666,10 +810,17 @@ class Database:
                 continue
             if region_id is not None and c.get("region_id") != int(region_id):
                 continue
-            if category and c["category"] != category and not (
-                category.startswith("N") and c["category"] == "Road"
-            ):
-                continue
+            if category:
+                if category.startswith("N"):
+                    # N100–N1000 : match n_class, ou Road sans n_class (fallback large)
+                    if c.get("n_class") == category:
+                        pass
+                    elif c["category"] == "Road" and not c.get("n_class"):
+                        pass
+                    else:
+                        continue
+                elif c["category"] != category:
+                    continue
             if drivetrain and c["drivetrain"] != drivetrain:
                 continue
             if car_type and c["car_type"] != car_type:
@@ -713,6 +864,10 @@ class Database:
             "region_id": c.get("region_id", 0),
             "category": c["category"],
             "drivetrain": c["drivetrain"],
+            "pp_lo": c.get("pp_lo"),
+            "pp_hi": c.get("pp_hi"),
+            "power_hp": c.get("power_hp"),
+            "n_class": c.get("n_class"),
             "has_swap": c["has_swap"],
             "swaps": c["swaps"],
             "thumb": c.get("thumb"),
@@ -727,8 +882,8 @@ class Database:
                 "cars": len(self.cars),
                 "swaps": swap_count,
                 "patch": "1.71 (août 2026)",
-                "cars_note": "Liste gt7info : les 4 voitures 1.71 (Caterham Seven, IONIQ 6 N, Chaser, Mark II) sont présentes.",
-                "swaps_note": "Swaps gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent manquer.",
+                "cars_note": "Liste gt7info + overrides data/car_overrides.csv (drivetrain / PP indicatif / N-class). Les 4 voitures 1.71 sont présentes.",
+                "swaps_note": "Swaps gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent encore manquer — ranking / coûts améliorés côté moteur.",
             },
         }
 
