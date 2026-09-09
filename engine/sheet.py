@@ -225,11 +225,15 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
         n["aero_r"] = int(n["aero_r"] * 0.92)
         n["vmax"] += 12
         n["toe_r"] += 0.03
+        n["lsd_ra"] += 2
     elif layout == "technical" and surface == "tarmac":
-        n["aero_f"] = int(n["aero_f"] * 1.06)
-        n["nf_f"] -= 0.06
+        n["aero_f"] = int(n["aero_f"] * 1.08)
+        n["aero_r"] = int(n["aero_r"] * 1.04)
+        n["nf_f"] -= 0.08
+        n["nf_r"] -= 0.04
         n["comp_f"] -= 1
         n["vmax"] -= 12
+        n["arb_f"] = max(1, n["arb_f"] - 1)
 
     # Nürburgring / bosses
     if bumpy and surface == "tarmac":
@@ -259,6 +263,92 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
     if not has_gt_auto and band == "road":
         n["aero_f"] = 0
         n["aero_r"] = 0
+
+    # ── Proxies masse / puissance (pp band, catégorie, traction) ─────────
+    # Petits deltas seulement — pas de fausses constantes de ressort.
+    pp_lo, pp_hi = car.get("pp_lo"), car.get("pp_hi")
+    pp_mid = None
+    if pp_lo is not None and pp_hi is not None:
+        pp_mid = (float(pp_lo) + float(pp_hi)) / 2.0
+    elif pp_lo is not None:
+        pp_mid = float(pp_lo)
+    power_hp = car.get("power_hp")
+    try:
+        power_hp = float(power_hp) if power_hp is not None else None
+    except (TypeError, ValueError):
+        power_hp = None
+
+    if band in ("road", "gt4", "hyper") and pp_mid is not None:
+        if pp_mid >= 600:
+            n["nf_f"] += 0.08
+            n["nf_r"] += 0.06
+            n["arb_f"] += 1
+            n["ride_f"] = max(15, n["ride_f"] - 2)
+            n["ride_r"] = max(15, n["ride_r"] - 2)
+        elif pp_mid <= 420:
+            n["nf_f"] -= 0.08
+            n["nf_r"] -= 0.06
+            n["comp_f"] -= 1
+            n["ride_f"] += 3
+            n["ride_r"] += 3
+
+    if power_hp is not None and band in ("road", "hyper", "gt4"):
+        if power_hp >= 600:
+            n["lsd_ra"] += 3
+            n["tcs"] = max(n["tcs"], 1)
+            n["aero_r"] = int(n["aero_r"] * 1.04)
+        elif power_hp <= 180:
+            n["lsd_ra"] -= 2
+            n["nf_f"] -= 0.05
+
+    if drivetrain == "FF" and band == "road":
+        n["brake_bal"] = min(n.get("brake_bal", -1) + 0, -1)
+        n["arb_r"] = min(10, n["arb_r"] + 1)
+    elif drivetrain == "MR" and band in ("road", "hyper"):
+        n["lsd_rd"] += 2
+        n["toe_r"] += 0.02
+    elif drivetrain == "4WD" and band == "road":
+        n["split_f"] = min(45, max(30, n.get("split_f", 35)))
+
+    # ── Profil circuit plus fin ─────────────────────────────────────────
+    density = float(profile.get("corner_density") or 0)
+    elev = float(track.get("elevation") or 0)
+    target = int(profile.get("target_speed") or n.get("vmax") or 270)
+
+    if profile.get("endurance") and surface == "tarmac":
+        n["comp_f"] -= 1
+        n["comp_r"] -= 1
+        n["nf_f"] -= 0.06
+        n["nf_r"] -= 0.05
+        n["camber_f"] = max(1.0, n["camber_f"] - 0.2)  # usure
+        n["tcs"] = max(n["tcs"], 1)
+
+    if profile.get("city") and surface == "tarmac":
+        n["ride_f"] += 3
+        n["ride_r"] += 3
+        n["comp_f"] -= 1
+        n["nf_f"] -= 0.08
+        n["vmax"] = min(n["vmax"], 250)
+        n["aero_f"] = int(n["aero_f"] * 1.05)
+
+    if density >= 5.0 and surface == "tarmac":
+        n["aero_f"] = int(n["aero_f"] * 1.05)
+        n["vmax"] -= 8
+        n["comp_f"] -= 1
+        n["toe_f"] += 0.02
+    elif density and density <= 2.5 and surface == "tarmac" and layout != "high_speed":
+        n["vmax"] += 6
+
+    if elev >= 60 and surface == "tarmac":
+        n["comp_f"] -= 1
+        n["exp_f"] += 1
+        n["ride_f"] += 2
+        n["ride_r"] += 2
+
+    # Vmax feuille calée sur target_speed du profil (léger)
+    if surface == "tarmac" and target:
+        blend = int(0.65 * n["vmax"] + 0.35 * target)
+        n["vmax"] = blend
 
     # Style intention
     if style == "drift":
@@ -388,6 +478,23 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
         for key, delta in SYMPTOM_DELTAS.get(sid, {}).items():
             if key in n:
                 n[key] = n[key] + delta
+
+    # Softening sous limite PP : un peu plus d'aides, aéro un cran plus douce
+    if pp_limit is not None:
+        try:
+            ppl = float(pp_limit)
+        except (TypeError, ValueError):
+            ppl = None
+        if ppl is not None:
+            n["tcs"] = max(n["tcs"], 1 if ppl >= 700 else 2)
+            n["abs"] = max(n["abs"], 1)
+            if band in ("road", "gt4", "hyper"):
+                n["aero_f"] = int(n["aero_f"] * 0.94)
+                n["aero_r"] = int(n["aero_r"] * 0.94)
+            if ppl < 600:
+                n["nf_f"] -= 0.05
+                n["nf_r"] -= 0.04
+                n["tcs"] = max(n["tcs"], 2)
 
     # Clamps GT7
     n["ride_f"] = _i(n["ride_f"], 15, 160)
@@ -541,10 +648,13 @@ def build_sheet(car, track, profile, drivetrain, tire, style, symptoms, pilot, c
         "Logique Praiano : d'abord les forts (hauteur, fréquence, carrossage, appui), "
         "puis LSD / pincement / freins, enfin amortos et barres. "
         "Rake (AR plus haut). Compression < expansion. LSD initial BAS. "
-        "Pincement AV OUT, AR IN. Unités = écran GT7 (amortos en %, Hz, appui selon la caisse)."
+        "Pincement AV OUT, AR IN. Unités = écran GT7 (amortos en %, Hz, appui selon la caisse). "
+        "Deltas fins : PP/catégorie/traction, densité de virages, endurance/city/oval, limite PP (TCS/ABS/aéro)."
     )
     if bumpy:
         method += " Nürburgring / bosses : +4–5 mm, compression −2, décél. LSD +, un peu plus d'appui AR."
+    if pp_limit is not None:
+        method += f" Limite PP {pp_limit}: aides un cran au-dessus, aéro légèrement adoucie."
 
     return {
         "numbers": n,

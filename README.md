@@ -63,12 +63,12 @@ La feuille de réglages reprend la présentation GT7 (AV / AR, crans exacts). L�
 ## Couverture (patch 1.71 — août 2026)
 
 - **584 voitures** (gt7info) : Caterham Seven Superlight R500, IONIQ 6 N, Chaser Tourer V, Mark II Tourer V inclus.
-- **228 swaps** : base gt7info + 10 combinaisons officielles 1.71. Des swaps ajoutés entre 1.62 et 1.70 peuvent manquer.
+- **228 swaps** : base gt7info + 10 combinaisons officielles 1.71. Des swaps 1.62–1.70 peuvent encore manquer (ranking / coûts moteur améliorés ; pas d’invention de paires non vérifiées).
 - Miniatures : gtplus.app (repli sur initiales si l’image n’existe pas).
 
 ## Limites honnêtes
 
-- Pas de PP stock exact pour chaque road car (les Gr. ont une fourchette).
+- PP stock Road / Hypercar / VGT : fourchettes *indicatives* + seed `data/car_overrides.csv` (N-class dérivée). Pas un dump officiel Polyphony.
 - Les Gr. / racing ont souvent les pièces déjà montées ou indisponibles : n’achète que ce que le menu affiche.
 - Un swap change poids et PP : retaille ECU / lest / boîte après.
 - Les pièces Ultimate ne s’achètent pas, elles sortent des tickets roulette 3★/4★.

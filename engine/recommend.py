@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 from .catalog import (
@@ -79,6 +80,24 @@ def _best_available(collector_level, has_ultimate, chain):
     return None
 
 
+
+EV_NAME_RE = re.compile(
+    r"model [s3xy]|taycan|e-tron|ioniq|leaf|i3\b|id\.r|id\.?[.]?buzz|"
+    r"polestar|eqs|eqe|i4\b|i[xX]\b|epace|mustang mach-e|ev\b|electric|"
+    r"yangwang|nio |byd |rimac|nevera",
+    re.I,
+)
+
+
+def is_likely_ev(car: dict) -> bool:
+    """Détecte les EV probables (pas de bore/cam/turbo ICE)."""
+    name = f"{car.get('full_name') or ''} {car.get('name') or ''}"
+    if EV_NAME_RE.search(name):
+        return True
+    # Pas de kits ICE typiques sur une Gr. EV / VGT électrique déjà "race"
+    return False
+
+
 def recommend(car, track, opts):
     cl = int(opts.get("collector_level") or 1)
     weather = opts.get("weather") or "dry"
@@ -103,8 +122,18 @@ def recommend(car, track, opts):
     notes = []
 
     if categories and car["category"] not in categories:
-        # N-classes only apply loosely
-        if not any(c.startswith("N") for c in categories):
+        n_want = [c for c in categories if str(c).startswith("N")]
+        if n_want:
+            nc = car.get("n_class")
+            if nc and nc not in n_want:
+                warnings.append(
+                    f"N-class estimée {nc} hors règlement ({', '.join(n_want)})."
+                )
+            elif not nc and car["category"] != "Road":
+                warnings.append(
+                    f"La {car['full_name']} est en {car['category']}, hors règlement N ({', '.join(n_want)})."
+                )
+        else:
             warnings.append(
                 f"La {car['full_name']} est en {car['category']}, hors règlement ({', '.join(categories)})."
             )
@@ -248,6 +277,13 @@ def recommend(car, track, opts):
     skip_boost = race_car or power_level in ("low", "mid")
     skip_ultimate_power = power_level != "max"
 
+    ev_car = is_likely_ev(car)
+    if ev_car:
+        notes.append(
+            "Véhicule électrique détecté : pas de bore / cames / turbo / collecteur ICE — "
+            "on reste sur ECU / carto et notes d'admission adaptées."
+        )
+
     # ECU always useful (power + later detune)
     ecu = _best_available(cl, has_ultimate, ["ecu_full", "ecu_sport"])
     if ecu:
@@ -256,25 +292,33 @@ def recommend(car, track, opts):
             if ecu == "ecu_full"
             else "Premier palier de carto. Passe full custom au rang 5 pour le % de puissance."
         )
+        if ev_car:
+            why = (
+                "ECU / output % : principal levier PP et traction sur EV (pas de kit turbo)."
+                if ecu == "ecu_full"
+                else "Carto sport EV : premier palier en attendant le full custom (rang 5)."
+            )
         _add(shopping, ecu, why, "power")
 
     intake = _best_available(cl, has_ultimate, ["air_racing", "air_sport"])
-    if intake and not race_car:
+    if intake and not race_car and not ev_car:
         _add(shopping, intake, "Admission : cheap, toujours prise.", "power")
+    elif intake and ev_car and not race_car:
+        notes.append("Admission / ligne ICE ignorées sur EV (souvent grisées ou sans effet).")
 
     exhaust = _best_available(cl, has_ultimate, ["muffler_racing", "muffler_semi", "muffler_sport"])
-    if exhaust and not race_car:
+    if exhaust and not race_car and not ev_car:
         _add(shopping, exhaust, "Ligne plus libre, plus de haut-régime.", "power")
-    if cl >= 6 and not race_car:
+    if cl >= 6 and not race_car and not ev_car:
         _add(shopping, "manifold", "Collecteur racing : complète la ligne.", "power")
 
-    if not race_car and power_level != "low":
+    if not race_car and not ev_car and power_level != "low":
         # permanent NA path — dosé selon la limite PP
         if cl >= 4:
             _add(shopping, "bore", "Bore up : meilleur rapport prix/chevaux sur un NA. Irréversible.", "power")
             _add(shopping, "cam", "Cames haute levée : +300 tr/min, allonge le haut.", "power")
             if skip_boost:
-                _add(shopping, "pistons_hc", "Pistons HC : NA only. Ne pas poser si tu prévois un turbo.", "power", optional=True)
+                _add(shopping, "pistons_hc", "Pistons HC : NA only. Ne pas poser si tu prévois un turbo/compressseur.", "power", optional=True)
         if cl >= 5 and power_level == "max" and style == "chrono":
             _add(shopping, "crank", "Vilebrequin racing : pic plus haut, irréversible.", "power", optional=True)
         if cl >= 6 and power_level == "max" and style == "chrono":
@@ -292,28 +336,58 @@ def recommend(car, track, opts):
         elif has_ultimate and skip_ultimate_power:
             notes.append("Pièces Ultimate moteur ignorées : la limite PP ne justifie pas le surplus de chevaux.")
 
-        # boost
+        # boost — turbo OU compresseur selon profil / style
         if cl >= 6 and power_level == "low":
             notes.append("Limite PP basse : on garde ECU / admission / ligne pour le couple, sans cylindrée ni turbo.")
         if not skip_boost and cl >= 5:
-            if profile["layout"] == "technical" or profile["surface"] in ("dirt", "snow"):
-                turbo = _best_available(cl, has_ultimate, ["turbo_low", "turbo_mid"])
-                why = "Turbo bas/mi-régime : couple tôt sur piste technique ou terre."
-            elif profile["layout"] == "high_speed":
-                turbo = _best_available(cl, has_ultimate, ["turbo_uhigh", "turbo_high", "turbo_mid"])
-                why = "Turbo haut-régime : pic pour les grandes courbes / lignes droites."
-            else:
-                turbo = _best_available(cl, has_ultimate, ["turbo_mid", "turbo_high"])
-                why = "Turbo mi-régime : le plus propre à conduire."
-            if turbo:
-                _add(shopping, turbo, why, "power")
-            ic = _best_available(cl, has_ultimate, ["ic_racing", "ic_sport"])
-            if ic:
-                _add(shopping, ic, "Intercooler dès qu'il y a de la suralimentation.", "power")
-            if cl >= 6:
-                _add(shopping, "als", "Anti-lag : le turbo reste en pression à la décélération.", "power")
+            want_sc = (
+                profile["layout"] == "technical"
+                or profile["surface"] in ("dirt", "snow")
+                or style in ("stable",)
+                or (style == "polyvalent" and profile["layout"] != "high_speed")
+            )
+            # Style chrono high-speed → turbo ; technique / stable / bas-régime → prefer SC
+            if want_sc and style != "chrono":
+                sc = _best_available(cl, has_ultimate, ["sc_high", "sc_low"] if profile["layout"] == "high_speed" else ["sc_low", "sc_high"])
+                if sc:
+                    why = (
+                        "Compresseur bas-régime : couple linéaire tôt — idéal technique / stable / terre."
+                        if sc == "sc_low"
+                        else "Compresseur haut-régime : pic plus haut, toujours plus linéaire qu'un turbo."
+                    )
+                    _add(shopping, sc, why, "power")
+                    notes.append(
+                        "Compresseur choisi à la place du turbo : réponse plus linéaire (TCS / pilotage stable)."
+                    )
+                else:
+                    want_sc = False
+            if not want_sc or style == "chrono":
+                if profile["layout"] == "technical" or profile["surface"] in ("dirt", "snow"):
+                    turbo = _best_available(cl, has_ultimate, ["turbo_low", "turbo_mid"])
+                    why = "Turbo bas/mi-régime : couple tôt sur piste technique ou terre."
+                elif profile["layout"] == "high_speed":
+                    turbo = _best_available(cl, has_ultimate, ["turbo_uhigh", "turbo_high", "turbo_mid"])
+                    why = "Turbo haut-régime : pic pour les grandes courbes / lignes droites."
+                else:
+                    turbo = _best_available(cl, has_ultimate, ["turbo_mid", "turbo_high"])
+                    why = "Turbo mi-régime : le plus propre à conduire."
+                if turbo and not any(i.get("id", "").startswith("sc_") for i in shopping):
+                    _add(shopping, turbo, why, "power")
+            # Intercooler / ALS seulement s'il y a un turbo (pas SC dans GT7 de la même façon)
+            has_turbo = any(str(i.get("id", "")).startswith("turbo_") for i in shopping)
+            if has_turbo:
+                ic = _best_available(cl, has_ultimate, ["ic_racing", "ic_sport"])
+                if ic:
+                    _add(shopping, ic, "Intercooler dès qu'il y a de la suralimentation (turbo).", "power")
+                if cl >= 6:
+                    _add(shopping, "als", "Anti-lag : le turbo reste en pression à la décélération.", "power")
             notes.append(
                 "Ne cumule pas pistons haute compression et kit turbo/compressseur : le jeu retire les HC."
+            )
+    elif ev_car and not race_car:
+        if pp_limit is not None and cl >= 4:
+            notes.append(
+                f"EV + limite {pp_limit:.0f} PP : privilégie ECU % puis lest — pas de bridle moteur ICE."
             )
 
     if style == "chrono" and cl >= 50 and profile["layout"] == "high_speed" and not pp_limit:
@@ -511,36 +585,133 @@ def recommend(car, track, opts):
     }
 
 
+# Table structurée moteurs swap : puissance relative + tags (pas de matching fragile seul).
+# power ~ 0–100 ; tags : rally, na, v8, v12, hyper, rotary, 4cyl, ev_incompat
+_SWAP_ENGINE_HINTS = [
+    {"needle": "8.0-wr16", "power": 100, "tags": ("hyper", "v8")},
+    {"needle": "chiron", "power": 100, "tags": ("hyper", "v8")},
+    {"needle": "m158-amg-huayra", "power": 94, "tags": ("hyper",)},
+    {"needle": "huayra", "power": 92, "tags": ("hyper",)},
+    {"needle": "r26b", "power": 92, "tags": ("rotary", "na")},
+    {"needle": "f140", "power": 90, "tags": ("v12", "hyper")},
+    {"needle": "vrh35", "power": 88, "tags": ("v8",)},
+    {"needle": "demon", "power": 88, "tags": ("v8",)},
+    {"needle": "l539", "power": 88, "tags": ("v12",)},
+    {"needle": "m159", "power": 86, "tags": ("v8",)},
+    {"needle": "vr38", "power": 86, "tags": ("v6",)},
+    {"needle": "ctr38", "power": 85, "tags": ("v8",)},
+    {"needle": "v8-suzuki", "power": 85, "tags": ("v8",)},
+    {"needle": "evo-final", "power": 84, "tags": ("rally", "4cyl")},
+    {"needle": "1lr-gue", "power": 83, "tags": ("v10", "na")},
+    {"needle": "hr-414e", "power": 82, "tags": ("v6",)},
+    {"needle": "mdya", "power": 82, "tags": ("flat6",)},
+    {"needle": "ls9", "power": 80, "tags": ("v8",)},
+    {"needle": "hellcat", "power": 80, "tags": ("v8",)},
+    {"needle": "dkh-911", "power": 80, "tags": ("flat6",)},
+    {"needle": "gti-vgt", "power": 80, "tags": ("4cyl",)},
+    {"needle": "b58", "power": 78, "tags": ("i6",)},
+    {"needle": "2jz", "power": 78, "tags": ("i6",)},
+    {"needle": "lz20b", "power": 78, "tags": ("i4", "rally")},
+    {"needle": "rb26", "power": 77, "tags": ("i6",)},
+    {"needle": "lt5", "power": 76, "tags": ("v8",)},
+    {"needle": "h25a", "power": 75, "tags": ("v6", "rally")},
+    {"needle": "ls7", "power": 74, "tags": ("v8", "na")},
+    {"needle": "690t", "power": 74, "tags": ("i4",)},
+    {"needle": "lt4", "power": 72, "tags": ("v8",)},
+    {"needle": "p65b44", "power": 72, "tags": ("i6",)},
+    {"needle": "vk45", "power": 72, "tags": ("v8", "na")},
+    {"needle": "voodoo", "power": 70, "tags": ("v8", "na")},
+    {"needle": "f136", "power": 70, "tags": ("v8",)},
+    {"needle": "m97", "power": 70, "tags": ("flat6",)},
+    {"needle": "r5-20vt", "power": 70, "tags": ("rally", "5cyl")},
+    {"needle": "byh-r8", "power": 68, "tags": ("v8", "na")},
+    {"needle": "coyote", "power": 66, "tags": ("v8", "na")},
+    {"needle": "windsor", "power": 64, "tags": ("v8", "na")},
+    {"needle": "13b-rew", "power": 62, "tags": ("rotary",)},
+    {"needle": "k20c1", "power": 60, "tags": ("4cyl",)},
+    {"needle": "ej20", "power": 60, "tags": ("rally", "4cyl")},
+    {"needle": "3s-gte", "power": 58, "tags": ("4cyl",)},
+    {"needle": "959.50", "power": 78, "tags": ("flat6",)},
+    {"needle": "m64", "power": 55, "tags": ("flat6", "na")},
+    {"needle": "se75e", "power": 55, "tags": ("4cyl", "na")},
+    {"needle": "sr20", "power": 52, "tags": ("4cyl",)},
+    {"needle": "k24a", "power": 48, "tags": ("4cyl", "na")},
+    {"needle": "lt1", "power": 70, "tags": ("v8",)},
+    {"needle": "3uz-fe", "power": 68, "tags": ("v8", "na")},
+    {"needle": "l4-focus-gr.b", "power": 82, "tags": ("rally", "4cyl")},
+    {"needle": "b18c", "power": 40, "tags": ("4cyl", "na")},
+    {"needle": "r06a", "power": 28, "tags": ("3cyl",)},
+    {"needle": "k14c", "power": 30, "tags": ("3cyl",)},
+    {"needle": "v12-xjr-9", "power": 90, "tags": ("v12", "na")},
+    {"needle": "v8-ford-gt", "power": 84, "tags": ("v8",)},
+]
+
+
+def _swap_hint(engine_name: str) -> dict:
+    key = (engine_name or "").lower()
+    best = None
+    best_len = -1
+    for h in _SWAP_ENGINE_HINTS:
+        n = h["needle"]
+        if n in key and len(n) > best_len:
+            best = h
+            best_len = len(n)
+    if best:
+        return best
+    return {"needle": "", "power": 50, "tags": ()}
+
+
 def _rank_swaps(swaps, pp_limit, profile):
-    """Heuristique : gros moteurs d'abord, sauf limite PP basse."""
-    POWER_HINTS = [
-        ("chiron", 100), ("huayra", 92), ("demon", 88), ("hellcat", 80),
-        ("vr38", 86), ("r26b", 90), ("2jz", 78), ("ls7", 74), ("ls9", 80),
-        ("lt5", 76), ("lt4", 72), ("vrh35", 88), ("evo-final-gr.b", 84),
-        ("k20c1", 60), ("b18c", 40), ("se75e", 55), ("mdya", 82),
-        ("dkh-911", 80), ("m97", 70), ("h25a", 75), ("v8-suzuki", 85),
-        ("3s-gte", 58), ("13b-rew", 62), ("rb26", 77), ("sr20", 52),
-        ("1lr-gue", 83), ("f140", 90), ("f136", 70), ("l539", 88),
-        ("byh-r8", 68), ("p65b44", 72), ("m159", 86), ("8.0-wr16", 100),
-        ("windsor", 64), ("voodoo", 70), ("coyote", 66), ("k24a", 48),
-        ("hr-414e", 80), ("vk45", 72), ("lz20b", 78), ("ej20", 60),
-        ("k14c", 35), ("gti-vgt", 80), ("r5-20vt", 70), ("690t", 74),
-        ("ctr38", 85), ("959.50", 78), ("m64", 55),
-    ]
+    """Classe les swaps avec table structurée + conscience PP / surface."""
+    surface = (profile or {}).get("surface") or "tarmac"
+    layout = (profile or {}).get("layout") or "mixed"
     ranked = []
     for s in swaps:
-        key = s["engine"].lower()
-        score = 50
-        for needle, val in POWER_HINTS:
-            if needle in key:
-                score = val
-                break
-        if pp_limit and pp_limit < 600:
-            score = 100 - score  # milder engines first
-        if profile["surface"] in ("dirt", "snow") and any(x in key for x in ("evo", "ej20", "gr.b", "quattro")):
-            score += 15
-        ranked.append({**s, "score": score})
-    ranked.sort(key=lambda x: -x["score"])
+        hint = _swap_hint(s.get("engine") or "")
+        power = int(hint.get("power") or 50)
+        tags = set(hint.get("tags") or ())
+        score = float(power)
+
+        # Limite PP : démotte les monstres sous un plafond bas ; favorise les moteurs doux.
+        if pp_limit is not None:
+            if pp_limit < 550:
+                score = 110 - power
+                if power >= 80:
+                    score -= 25
+                elif power >= 70:
+                    score -= 12
+            elif pp_limit < 650:
+                if power >= 90:
+                    score -= 35
+                elif power >= 80:
+                    score -= 18
+                elif power <= 55:
+                    score += 8
+            elif pp_limit < 750:
+                if power >= 95:
+                    score -= 12
+            # au-delà : gros moteurs OK
+
+        # Terre / neige : boost moteurs rallye / coupleux bas-régime
+        if surface in ("dirt", "snow"):
+            if "rally" in tags:
+                score += 22
+            if power <= 70:
+                score += 6
+            if "hyper" in tags or power >= 90:
+                score -= 20
+
+        # Technique : préfère couple linéaire (4cyl turbo / NA) vs hyper peaky
+        if layout == "technical":
+            if "rally" in tags or "4cyl" in tags:
+                score += 8
+            if "hyper" in tags:
+                score -= 6
+        if layout == "high_speed" and power >= 75:
+            score += 6
+
+        ranked.append({**s, "score": round(score, 1), "power_hint": power, "tags": sorted(tags)})
+    ranked.sort(key=lambda x: (-x["score"], x.get("engine") or ""))
     return ranked
 
 
@@ -576,16 +747,25 @@ def _sum_cost(items):
 
 
 def _dedupe(items):
-    seen = set()
-    out = []
+    """Déduplique par id en gardant la meilleure priorité ; ne droppe pas un swap riche."""
     rank = {"must": 0, "core": 1, "pp": 2, "power": 3, "optional": 4}
-    items = sorted(items, key=lambda i: rank.get(i.get("priority"), 9))
-    for it in items:
-        if it["id"] in seen:
+    best: dict = {}
+    order = []
+    for it in sorted(items, key=lambda i: rank.get(i.get("priority"), 9)):
+        pid = it["id"]
+        if pid not in best:
+            best[pid] = it
+            order.append(pid)
             continue
-        seen.add(it["id"])
-        out.append(it)
-    return out
+        prev = best[pid]
+        # garde celui avec plus de contexte (swap_pick) ou meilleure priorité déjà triée
+        if it.get("swap_pick") and not prev.get("swap_pick"):
+            best[pid] = it
+        elif it.get("why") and len(str(it.get("why"))) > len(str(prev.get("why") or "")):
+            # ne remplace que si même priorité ou mieux
+            if rank.get(it.get("priority"), 9) <= rank.get(prev.get("priority"), 9):
+                best[pid] = {**prev, **{k: v for k, v in it.items() if v}}
+    return [best[pid] for pid in order]
 
 
 def build_setup(car, track, profile, drivetrain, tire, style, cl, pp_limit, weather, has_gt_auto, allow_wide, symptoms=None, pilot=None):
@@ -680,32 +860,125 @@ def _strategy_text(car, track, profile, drivetrain, tire, pp_limit, cl, style):
 
 
 def suggest_cars(db, track, opts, limit=12):
-    """Propose des voitures qui collent au règlement / circuit."""
+    """Propose des voitures qui collent au règlement / circuit.
+
+    Signature compatible app.py : suggest_cars(db, track, body, limit=…).
+    """
     cats = opts.get("categories") or []
     dts = opts.get("drivetrains") or []
     types = opts.get("car_types") or []
     want_swap = bool(opts.get("prefer_swap"))
-    surface = track["profile"]["surface"]
+    pp_limit = opts.get("pp_limit")
+    pp_limit = float(pp_limit) if pp_limit not in (None, "", 0, "0") else None
+    profile = track.get("profile") or {}
+    surface = profile.get("surface") or "tarmac"
+    layout = profile.get("layout") or "mixed"
+    endurance = bool(profile.get("endurance"))
+    city = bool(profile.get("city"))
+    oval = bool(profile.get("oval"))
+    n_cats = [c for c in cats if str(c).startswith("N")]
+    gr_cats = [c for c in cats if not str(c).startswith("N")]
+
     scored = []
     for c in db.cars:
-        if cats and c["category"] not in cats:
-            if not (c["category"] == "Road" and any(x.startswith("N") for x in cats)):
+        # Filtre catégorie / N-class
+        if cats:
+            ok = False
+            if gr_cats and c["category"] in gr_cats:
+                ok = True
+            if n_cats:
+                nc = c.get("n_class")
+                if nc and nc in n_cats:
+                    ok = True
+                elif c["category"] == "Road" and not nc:
+                    # Road sans n_class : laisser passer faiblement, score pénalisé plus bas
+                    ok = True
+            if not ok:
                 continue
         if dts and c["drivetrain"] not in dts:
             continue
         if types and c["car_type"] not in types:
             continue
-        score = 0
-        if surface == "dirt" and (c["drivetrain"] == "4WD" or c["category"] == "Gr.B"):
-            score += 40
-        if surface == "tarmac" and c["category"] in ("Gr.3", "Gr.4") and not cats:
-            score += 15
-        if c["has_swap"]:
-            score += 10 if want_swap else 3
-        if c["drivetrain"] == "MR":
-            score += 4
-        if c["drivetrain"] == "FR":
-            score += 3
+
+        score = 10.0
+        # N-class match exact
+        if n_cats:
+            if c.get("n_class") in n_cats:
+                score += 35
+            elif c["category"] == "Road":
+                score -= 8
+            else:
+                score -= 25
+        if gr_cats and c["category"] in gr_cats:
+            score += 20
+
+        # Surface / layout
+        if surface == "dirt":
+            if c["drivetrain"] == "4WD" or c["category"] == "Gr.B":
+                score += 40
+            elif c["drivetrain"] == "FF":
+                score -= 10
+            if c["category"] in ("Gr.1", "Super Formula"):
+                score -= 30
+        elif surface == "snow":
+            if c["drivetrain"] == "4WD":
+                score += 35
+            else:
+                score -= 15
+        else:
+            if c["category"] in ("Gr.3", "Gr.4") and not cats:
+                score += 15
+            if layout == "high_speed" and c["drivetrain"] in ("MR", "FR", "RR"):
+                score += 6
+            if layout == "technical" and c["drivetrain"] in ("FF", "4WD"):
+                score += 5
+            if endurance and c["category"] in ("Gr.1", "Gr.2", "Gr.3"):
+                score += 10
+            if city and c["drivetrain"] in ("FF", "MR"):
+                score += 4
+            if oval and c["drivetrain"] in ("FR", "MR"):
+                score += 6
+
+        # PP proximity
+        if pp_limit is not None:
+            lo = c.get("pp_lo")
+            hi = c.get("pp_hi")
+            if lo is not None and hi is not None:
+                mid = (lo + hi) / 2.0
+                # idéal : stock un peu sous la barre (marge de tune)
+                target = pp_limit - 25
+                dist = abs(mid - target)
+                if mid > pp_limit + 40:
+                    score -= 40  # mismatch évident
+                elif mid > pp_limit:
+                    score -= 15
+                else:
+                    score += max(0, 25 - dist / 4.0)
+            elif c["category"] == "Road":
+                score -= 2
+
+        # Swaps
+        if c.get("has_swap"):
+            score += 14 if want_swap else 3
+        elif want_swap:
+            score -= 8
+
+        # Léger biais traction (chrono tarmac)
+        if surface == "tarmac":
+            if c["drivetrain"] == "MR":
+                score += 4
+            elif c["drivetrain"] == "FR":
+                score += 3
+            elif c["drivetrain"] == "RR":
+                score += 2
+
+        # Demote kart / SF hors contexte
+        if not cats:
+            if c["category"] == "Kart" and surface == "tarmac" and not city:
+                score -= 20
+            if c["category"] == "Super Formula" and layout != "high_speed":
+                score -= 5
+
         scored.append((score, c))
     scored.sort(key=lambda x: (-x[0], x[1]["full_name"]))
     return [c for _, c in scored[:limit]]
